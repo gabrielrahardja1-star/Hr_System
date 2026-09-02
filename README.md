@@ -28,10 +28,27 @@ edited. That's what makes an adjusted hours figure defensible at payroll time.
 | | |
 |---|---|
 | ✅ Phase 1 | ingest API, hours engine, status coding, exceptions, CSV export, CLI tools, device probe, tests |
-| ⬜ Phase 2 | review web UI (Monthly grid, Daily roster, Exceptions queue, manual edit) |
+| ✅ Phase 2 | review web UI — Monthly grid, Daily roster, Exceptions queue, HTMX cell detail + manual correction, id/en toggle |
 | ⬜ Phase 3 | Export Runs screen, Wage Mapping screen |
 | ⬜ Phase 4 | site agent (pyzk poller + spool + PyInstaller build) |
 | ⬜ Phase 5 | Excel template integration — **blocked until the real template is shared** |
+
+### The web UI
+
+```bash
+make serve            # or: uvicorn server.main:app --port 8000
+# open http://localhost:8000  → redirects to /monthly
+```
+
+Screens: **/monthly** (employee × day grid, click any cell for punch detail +
+"Edit punch"), **/daily** (single-day roster), **/exceptions** (the review queue
+that gates a final export — filter by kind, resolve, or run the export from
+here). Language toggle top-right, Indonesian by default. Editing a punch writes a
+`corrections` row and recomputes that one day; the raw device punch is untouched.
+
+Known Phase-2 gaps: the exception *detail sentence* ("1 punch — need an even
+count…") is still English only (the labels, codes, and legend are localised);
+Dashboard / Payroll Export screens are stubs marked "soon".
 
 ---
 

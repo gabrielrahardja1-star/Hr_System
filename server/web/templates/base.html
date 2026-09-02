@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ t('header.monthly_title') }}{% endblock %} · MergeCoal</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">MC</div>
+      <div>
+        <div class="name">{{ t('app.brand') }}</div>
+        <div class="sub">{{ t('app.brand_sub') }}</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <div class="nav-head">{{ t('nav.section_ops') }}</div>
+      <span class="disabled"><span class="ico">▦</span>{{ t('nav.dashboard') }}<span class="soon">soon</span></span>
+      <a href="/daily?period={{ period }}" class="{{ 'active' if active_nav == 'daily' }}">
+        <span class="ico">▤</span>{{ t('nav.daily') }}
+      </a>
+      <a href="/monthly?period={{ period }}" class="{{ 'active' if active_nav == 'monthly' }}">
+        <span class="ico">▦</span>{{ t('nav.monthly') }}
+      </a>
+      <a href="/exceptions?period={{ period }}" class="{{ 'active' if active_nav == 'exceptions' }}">
+        <span class="ico">⚠</span>{{ t('nav.exceptions') }}
+        {% if open_exc_badge %}<span class="badge">{{ open_exc_badge }}</span>{% endif %}
+      </a>
+      <span class="disabled"><span class="ico">⇩</span>{{ t('nav.payroll') }}<span class="soon">soon</span></span>
+    </nav>
+    <div class="sb-user">
+      <div class="av">HR</div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:#1f2430">MergeCoal HR</div>
+        <div style="font-size:10.5px;color:#8a94a6">{{ t('app.user_role') }}</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="row">
+        <div style="flex:1;min-width:240px">
+          <h1>{% block heading %}{{ t('header.monthly_title') }}{% endblock %}</h1>
+          <div class="sub">{% block subheading %}{{ t('header.monthly_sub') }}{% endblock %}</div>
+        </div>
+        <div class="controls">
+          <form method="get" action="{{ request.url.path }}" style="display:contents">
+            <select name="period" onchange="this.form.submit()">
+              {% for p in periods %}
+              <option value="{{ p.value }}" {{ 'selected' if p.value == period }}>{{ p.label }}</option>
+              {% endfor %}
+            </select>
+            {% block controls %}{% endblock %}
+          </form>
+          <form method="post" action="/lang" style="display:contents">
+            <input type="hidden" name="to" value="{{ other_lang }}">
+            <input type="hidden" name="back" value="{{ request.url.path }}?period={{ period }}">
+            <button class="btn ghost" type="submit" title="Switch language">{{ t('lang.toggle') }}</button>
+          </form>
+        </div>
+      </div>
+    </header>
+    <div class="content">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+</body>
+</html>

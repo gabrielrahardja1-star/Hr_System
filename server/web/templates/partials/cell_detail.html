@@ -1,0 +1,79 @@
+{% if not d %}
+<div class="detail"><div class="note ok">No day record — nothing to review here.</div></div>
+{% else %}
+{% set emp_id = d.employee.id %}
+<div class="detail">
+  <div class="head">
+    <span class="code lg" style="background:{{ d.pal.bg }};color:{{ d.pal.fg }};border-color:{{ d.pal.bd }}">{{ d.code }}</span>
+    <span class="t">{{ d.date_label }} · {{ d.employee.name }}</span>
+    <span class="m">{{ t('detail.shift') }} {{ d.shift_label }} · {{ d.employee.emp_code }}
+      {% if d.has_correction %} · <strong style="color:#146c39">{{ t('detail.has_correction') }}</strong>{% endif %}
+    </span>
+    <button class="btn ghost" style="margin-left:auto"
+            hx-get="/cell/{{ emp_id }}/{{ d.day_iso }}" hx-target="#dt-{{ emp_id }}" hx-swap="innerHTML"
+            hx-on:click="this.closest('.detail-host').innerHTML=''">✕ {{ t('detail.close') }}</button>
+  </div>
+
+  <div class="facts">
+    <div class="fact"><div class="l">{{ t('detail.clock_in') }}</div><div class="v">{{ d.clock_in or t('detail.missing') }}</div></div>
+    <div class="fact"><div class="l">{{ t('detail.clock_out') }}</div>
+      <div class="v" style="{{ 'color:#96500a' if not d.clock_out }}">{{ d.clock_out or t('detail.missing') }}</div></div>
+    <div class="fact"><div class="l">{{ t('detail.hours') }}</div>
+      <div class="v" style="{{ 'color:#96500a' if d.hours is none }}">{{ d.hours if d.hours is not none else '—' }}</div></div>
+    <div class="fact"><div class="l">{{ t('detail.punch_count') }}</div><div class="v">{{ d.punch_count }}</div></div>
+    <div class="fact"><div class="l">{{ t('detail.state') }}</div><div class="v" style="font-size:12px">{{ d.state }}</div></div>
+  </div>
+
+  {% for e in d.open_exceptions %}
+  <div class="note {{ 'warn' if e.blocks else 'ok' }}">
+    <strong>{{ e.kind }}</strong> — {{ e.detail }}
+    {% if e.blocks %} · <em>{{ t('exc.blocks_export') }}</em>{% endif %}
+  </div>
+  {% endfor %}
+  {% if not d.open_exceptions %}
+  <div class="note ok">{{ t('code.' ~ d.code ~ '.desc') }}</div>
+  {% endif %}
+
+  {% if editing %}
+  <form class="edit"
+        hx-post="/cell/{{ emp_id }}/{{ d.day_iso }}/correct"
+        hx-target="#dt-{{ emp_id }}" hx-swap="innerHTML">
+    <div style="font-size:12px;font-weight:700;color:#1b2029">{{ t('edit.title') }}</div>
+    <div class="fields">
+      <div><label>{{ t('edit.new_in') }}</label>
+        <input type="datetime-local" name="new_in" value="" data-default="{{ d.edit_in_default }}"
+               onfocus="if(!this.value)this.value=this.dataset.default"></div>
+      <div><label>{{ t('edit.new_out') }}</label>
+        <input type="datetime-local" name="new_out" value="" data-default="{{ d.edit_out_default }}"
+               onfocus="if(!this.value)this.value=this.dataset.default"></div>
+      <div><label>{{ t('edit.force_code') }}</label>
+        <select name="force_code">
+          <option value="">—</option>
+          {% for c in d.code_options %}<option value="{{ c }}">{{ c }} · {{ t('code.' ~ c) }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div><label>{{ t('edit.reason') }}</label><textarea name="reason" rows="2" required></textarea></div>
+    <div style="max-width:220px"><label>{{ t('edit.actor') }}</label><input type="text" name="actor" value="HR"></div>
+    <div class="hint">{{ t('edit.hint') }}</div>
+    <div class="actions">
+      <button class="btn primary" type="submit">{{ t('edit.save') }}</button>
+      <button class="btn" type="button"
+              hx-get="/cell/{{ emp_id }}/{{ d.day_iso }}" hx-target="#dt-{{ emp_id }}" hx-swap="innerHTML">{{ t('edit.cancel') }}</button>
+    </div>
+  </form>
+  {% else %}
+  <div class="actions">
+    <button class="btn primary"
+            hx-get="/cell/{{ emp_id }}/{{ d.day_iso }}/edit" hx-target="#dt-{{ emp_id }}" hx-swap="innerHTML">
+      {{ t('detail.edit_punch') }}
+    </button>
+    {% if d.corrections %}
+    <span class="m" style="align-self:center;font-size:11px;color:#79818e">
+      {{ d.corrections|length }} correction(s) on record — last by {{ d.corrections[-1].actor }}
+    </span>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}

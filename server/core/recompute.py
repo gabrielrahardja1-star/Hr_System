@@ -19,7 +19,7 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Iterable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from server.config import get_shift_config, get_settings
@@ -114,7 +114,14 @@ def recompute_employee(
         time_corrected = "first_in" in corrections or "last_out" in corrections
         worked_minutes = summary.worked_minutes
         if time_corrected and first_in and last_out:
-            worked_minutes = round((last_out - first_in).total_seconds() / 60)
+            if last_out <= first_in:
+                # Impossible span — e.g. a night-shift clock-out entered without
+                # rolling to the next day. Refuse the pairing; keep the day
+                # flagged rather than pay a negative or zero shift.
+                last_out = None
+                worked_minutes = None
+            else:
+                worked_minutes = round((last_out - first_in).total_seconds() / 60)
 
         scheduled = is_scheduled_working(
             session, employee.id, employee.roster_pattern, work_date
@@ -191,13 +198,31 @@ def _parse_dt(value: str | None) -> dt.datetime | None:
     return parsed.astimezone(dt.timezone.utc)
 
 
+def data_frontier(session: Session) -> dt.date | None:
+    """The most recent local date any punch has been ingested for. Days after
+    this have no data yet — they must not be coded 'Absent', only left blank."""
+    latest = session.execute(select(func.max(Punch.punched_at))).scalar_one_or_none()
+    if latest is None:
+        return None
+    if latest.tzinfo is None:
+        latest = latest.replace(tzinfo=dt.timezone.utc)
+    return latest.astimezone(get_settings().timezone).date()
+
+
 def recompute_all(
     session: Session,
     start: dt.date,
     end: dt.date,
     *,
     device_user_ids: list[str] | None = None,
+    respect_frontier: bool = True,
 ) -> dict[str, list[dt.date]]:
+    if respect_frontier:
+        frontier = data_frontier(session)
+        if frontier is not None:
+            end = min(end, frontier)
+        if end < start:
+            return {}
     q = select(Employee)
     if device_user_ids is not None:
         q = q.where(Employee.device_user_id.in_(device_user_ids))

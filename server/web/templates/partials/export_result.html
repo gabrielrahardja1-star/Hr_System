@@ -1,0 +1,14 @@
+{% if outcome.blocked %}
+<div class="banner block" style="margin-bottom:14px">
+  ⚠ Final export blocked — {{ outcome.blocking_exceptions }} open blocking exception(s).
+  {{ outcome.run.blocked_reason }}. Resolve them, then try again.
+</div>
+{% else %}
+<div class="banner clear" style="margin-bottom:14px">
+  ✓ Export {{ period }} [{{ kind }}] — {{ outcome.run.record_count }} records,
+  {{ outcome.run.gross_hours }} gross hours.<br>
+  <span style="font-weight:400;font-size:11.5px">
+    {{ outcome.daily_path }}<br>{{ outcome.pivot_path }}
+  </span>
+</div>
+{% endif %}

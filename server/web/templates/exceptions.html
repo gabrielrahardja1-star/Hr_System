@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}{{ t('header.exceptions_title') }}{% endblock %}
+{% block heading %}{{ t('header.exceptions_title') }}{% endblock %}
+{% block subheading %}{{ t('header.exceptions_sub') }}{% endblock %}
+
+{% block content %}
+<section class="statgrid">
+  <div class="stat"><div class="l">{{ t('stat.open_exceptions') }}</div><div><span class="v" style="color:#96500a">{{ data.open_total }}</span></div></div>
+  <div class="stat"><div class="l">{{ t('stat.blocking') }}</div><div><span class="v" style="color:#a4271b">{{ data.blocking_total }}</span></div></div>
+  <div class="stat"><div class="l">{{ t('code.MP') }}</div><div><span class="v" style="color:#96500a">{{ data.counts.get('MP', 0) }}</span></div></div>
+  <div class="stat"><div class="l">{{ t('code.SS') }}</div><div><span class="v" style="color:#7a6108">{{ data.counts.get('SS', 0) }}</span></div></div>
+  <div class="stat"><div class="l">{{ t('stat.oldest_open') }}</div><div><span class="v">{{ data.oldest_open }}</span><span class="trend" style="color:#79818e">{{ t('exc.age_days') }}</span></div></div>
+</section>
+
+{% if data.export_clear %}
+<div class="banner clear">✓ {{ t('exc.none') }}</div>
+{% else %}
+<div class="banner block">⚠ {{ data.blocking_total }} {{ t('stat.blocking')|lower }} — {{ t('exc.blocks_export')|lower }}.</div>
+{% endif %}
+
+<section class="card pad" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  <div class="chips">
+    <a class="chip {{ 'on' if data.kind_filter == '*' }}" href="/exceptions?period={{ period }}&kind=*&resolved={{ 1 if data.show_resolved else 0 }}">
+      All <span class="n">{{ data.open_total }}</span>
+    </a>
+    {% for k in data.kinds %}
+    <a class="chip {{ 'on' if data.kind_filter == k }}" href="/exceptions?period={{ period }}&kind={{ k }}&resolved={{ 1 if data.show_resolved else 0 }}">
+      {{ k }} <span class="n">{{ data.counts.get(k, 0) }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  <label style="margin-left:auto;font-size:12px;color:#5f6875;display:flex;align-items:center;gap:6px">
+    <input type="checkbox" onchange="location.href='/exceptions?period={{ period }}&kind={{ data.kind_filter }}&resolved=' + (this.checked ? 1 : 0)"
+           {{ 'checked' if data.show_resolved }}>
+    {{ t('exc.resolved') }}
+  </label>
+  <form method="post" action="/export/{{ period }}" hx-post="/export/{{ period }}" hx-target="#exportbox" hx-swap="innerHTML">
+    <input type="hidden" name="kind" value="final">
+    <button class="btn primary" type="submit">↓ {{ t('header.export') }} ({{ period }})</button>
+  </form>
+</section>
+
+<div id="exportbox"></div>
+
+{% if data.rows %}
+<section class="card">
+  {% for x in data.rows %}
+  <div class="exrow" style="{{ 'opacity:.6' if x.state == 'resolved' }}">
+    <span class="code" style="background:{{ x.pal.bg }};color:{{ x.pal.fg }};border-color:{{ x.pal.bd }}">{{ x.kind }}</span>
+    <div class="who">
+      <div class="nm">{{ x.name }}</div>
+      <div class="id">{{ x.emp_code }} · {{ x.department }}</div>
+    </div>
+    <div class="when">
+      <div class="d">{{ x.date_label }}</div>
+      <div class="a" style="color:{{ '#a4271b' if x.age_days > 3 else '#79818e' }}">{{ x.age_days }} {{ t('exc.age_days') }}</div>
+    </div>
+    <div class="msg">{{ x.detail }}{% if x.code %} · <strong>{{ x.code }}</strong> {{ x.hours or '—' }}{% endif %}</div>
+    {% if x.state == 'open' %}
+      <span class="tag {{ 'block' if x.blocks else 'noblock' }}">{{ t('exc.blocks_export') if x.blocks else t('exc.no_block') }}</span>
+      <div class="actions">
+        <a class="btn" href="/monthly?period={{ period }}#emp-{{ x.employee_id }}">↗ table</a>
+        <form method="post" action="/exceptions/{{ x.id }}/resolve">
+          <input type="hidden" name="period" value="{{ period }}">
+          <input type="hidden" name="resolution" value="Reviewed in exceptions queue">
+          <button class="btn primary" type="submit">{{ t('exc.resolve') }}</button>
+        </form>
+      </div>
+    {% else %}
+      <span class="tag done">{{ t('exc.resolved') }}</span>
+      <div class="msg" style="flex:none;max-width:220px">{{ x.resolution }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% else %}
+<section class="card"><div class="empty">{{ t('exc.none') }}</div></section>
+{% endif %}
+{% endblock %}

@@ -30,8 +30,12 @@ def create_app() -> FastAPI:
     app.include_router(ingest_router)
 
     try:
+        from fastapi.staticfiles import StaticFiles
+
+        from server.web.routes import STATIC_DIR
         from server.web.routes import router as web_router
 
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
         app.include_router(web_router)
     except ModuleNotFoundError:
         # Web layer arrives in Phase 2.

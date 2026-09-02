@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ t('header.daily_title') }}{% endblock %}
+{% block heading %}{{ t('header.daily_title') }}{% endblock %}
+{% block subheading %}{{ t('header.daily_sub') }}{% endblock %}
+
+{% block content %}
+<section class="statgrid">
+  <div class="stat"><div class="l">{{ t('stat.total_employees') }}</div><div><span class="v">{{ roster.total }}</span></div></div>
+  <div class="stat"><div class="l">{{ t('stat.present') }}</div><div><span class="v" style="color:#146c39">{{ roster.counts.P + roster.counts.SS }}</span></div></div>
+  <div class="stat"><div class="l">{{ t('stat.absent') }}</div><div><span class="v" style="color:#a4271b">{{ roster.counts.A }}</span></div></div>
+  <div class="stat"><div class="l">{{ t('stat.pending_review') }}</div><div><span class="v" style="color:#96500a">{{ roster.counts.MP + roster.counts.SS }}</span></div></div>
+  <div class="stat"><div class="l">{{ t('stat.week_off_holiday') }}</div><div><span class="v" style="color:#5b3ba8">{{ roster.counts.WO + roster.counts.H }}</span></div></div>
+</section>
+
+<section class="card">
+  <div class="daystrip">
+    <span class="lbl">{{ t('col.date') }}</span>
+    {% for d in days %}
+    <a href="/daily?period={{ period }}&date={{ d.iso }}" class="{{ 'on' if d.iso == day_iso }}">
+      <div class="n">{{ d.num }}</div><div class="d">{{ d.dow }}</div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>{{ t('col.employee') }}</th><th>{{ t('col.department') }}</th><th>{{ t('col.shift') }}</th>
+        <th style="text-align:right">{{ t('col.in') }}</th><th style="text-align:right">{{ t('col.out') }}</th>
+        <th style="text-align:right">{{ t('col.hours') }}</th><th>{{ t('col.status') }}</th>
+      </tr></thead>
+      <tbody>
+      {% for r in roster.rows %}
+        <tr>
+          <td><div class="emp"><div class="av">{{ r.initials }}</div><div><div class="nm">{{ r.name }}</div><div class="id">{{ r.emp_code }}</div></div></div></td>
+          <td><span class="pill">{{ r.department }}</span></td>
+          <td style="font-size:12px;color:#4a5361">{{ r.shift }}</td>
+          <td style="text-align:right;font-weight:600">{{ r.in or '—' }}</td>
+          <td style="text-align:right;font-weight:600;{{ 'color:#96500a' if r.has_record and not r.out and r.code == 'MP' }}">{{ r.out or '—' }}</td>
+          <td style="text-align:right;font-weight:700">{{ r.hours or '—' }}</td>
+          <td>
+            <span class="code" style="background:{{ r.pal.bg }};color:{{ r.pal.fg }};border-color:{{ r.pal.bd }}">{{ r.code }}</span>
+            <span style="font-size:12px;color:#4a5361;margin-left:6px">{{ t('code.' ~ r.code) if r.code != '·' else '' }}</span>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% include "partials/legend.html" %}
+{% endblock %}
