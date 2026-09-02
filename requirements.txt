@@ -1,0 +1,19 @@
+# --- Management system (HQ server) ---
+# Lower bounds, not exact pins: the site will likely run a different Python
+# minor than dev. These are the versions Phase 1 was built and tested against.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy>=2.0.30
+pydantic>=2.10
+pydantic-settings>=2.5
+jinja2>=3.1
+python-multipart>=0.0.9
+pyyaml>=6.0
+
+# --- Tools / tests ---
+httpx>=0.27          # tools/mock_punch_source.py, later the agent's sender
+pytest>=8.0
+
+# --- Site agent only (NOT needed on the HQ server) ---
+# Install on the site PC with:  pip install pyzk
+# pyzk>=0.9

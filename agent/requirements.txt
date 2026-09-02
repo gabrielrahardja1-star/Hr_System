@@ -1,0 +1,4 @@
+# Site agent — install on the Windows PC the fingerprint terminal is cabled to.
+# The HQ server does NOT need these.
+pyzk>=0.9
+httpx>=0.27

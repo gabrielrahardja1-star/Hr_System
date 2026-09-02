@@ -1,0 +1,49 @@
+# How each attendance code maps to a payroll component.
+#
+# THIS SYSTEM DOES NOT DO PAYROLL MATH. These values are carried through the
+# export as extra columns so the existing Excel formulas can pick them up.
+# `multiplier` is informational — it is written to the CSV, never applied here.
+#
+# `payable`      -> is this code paid at all (drives the Wage Mapping screen toggle)
+# `blocks_export`-> an open exception of this code prevents a FINAL export run
+
+codes:
+  P:
+    component: "Upah pokok - shift penuh"
+    multiplier: 1.00
+    payable: true
+    rule: "Jam kerja x tarif harian, dibatasi panjang shift terjadwal"
+  A:
+    component: "Potong gaji"
+    multiplier: 0.00
+    payable: false
+    rule: "Dipotong kecuali ada catatan cuti yang disetujui"
+  MP:
+    component: "Ditahan - menunggu tinjauan"
+    multiplier: null
+    payable: false
+    blocks_export: true
+    rule: "Dikecualikan dari ekspor sampai absen disetujui atau diperbaiki"
+  SS:
+    component: "Upah pokok - pro-rata"
+    multiplier: 1.00
+    payable: true
+    blocks_export: true
+    rule: "Dibayar sesuai jam aktual; kekurangan dicatat pada shift"
+  WO:
+    component: "Libur mingguan"
+    multiplier: 0.00
+    payable: false
+    rule: "Hari istirahat terjadwal tanpa upah; lembur jika bekerja"
+  H:
+    component: "Upah hari libur"
+    multiplier: 1.00
+    payable: true
+    rule: "Dibayar satu shift penuh tanpa absen yang diharapkan"
+
+# LONG is not a cell code — it is an exception flag on a P day. Listed here so
+# the export gate knows whether it should block.
+exception_flags:
+  LONG:
+    blocks_export: false
+    rule: "Jam kerja di atas ambang; kemungkinan absen keluar terlewat - tinjau"

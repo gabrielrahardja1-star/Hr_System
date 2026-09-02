@@ -1,0 +1,22 @@
+# Declared site holidays. A scheduled working day that falls on one of these
+# dates is coded H (paid, no punches expected) instead of A.
+# Format: YYYY-MM-DD, one per line under `dates`.
+#
+# 2026 Indonesian national holidays are pre-filled; adjust for the actual
+# operational calendar and any site-specific days (cuti bersama, etc.).
+
+dates:
+  - 2026-01-01   # Tahun Baru Masehi
+  - 2026-02-17   # Tahun Baru Imlek
+  - 2026-03-19   # Hari Suci Nyepi
+  - 2026-03-20   # Idul Fitri
+  - 2026-03-21   # Idul Fitri
+  - 2026-04-03   # Wafat Isa Almasih
+  - 2026-05-01   # Hari Buruh
+  - 2026-05-14   # Kenaikan Isa Almasih
+  - 2026-05-27   # Idul Adha
+  - 2026-05-31   # Hari Raya Waisak
+  - 2026-06-17   # Tahun Baru Islam
+  - 2026-08-17   # Hari Kemerdekaan RI
+  - 2026-08-26   # Maulid Nabi Muhammad
+  - 2026-12-25   # Hari Raya Natal

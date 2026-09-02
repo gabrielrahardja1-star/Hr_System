@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Local runtime data — never commit the attendance database or exports
+/data/*.db
+/data/*.db-wal
+/data/*.db-shm
+/data/exports/
+/agent/spool.db*
+
+# Environment
+.env
+
+# OS
+.DS_Store

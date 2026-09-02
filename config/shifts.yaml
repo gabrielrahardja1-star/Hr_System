@@ -1,0 +1,48 @@
+# Shift definitions. Times are local (Asia/Jakarta), 24h.
+#
+# window_start / window_end bound the period in which punches are attributed to
+# this shift's work_date. For a night shift the window crosses midnight; a punch
+# is always attributed to the calendar date on which the window STARTS.
+#
+# short_hours / long_hours override the global thresholds in .env for this shift.
+# A day coded with worked hours below short_hours -> SS exception.
+# Above long_hours -> LONG exception (cell stays P).
+
+shifts:
+  A:
+    name: "Shift A (Pagi)"
+    start: "06:00"
+    end: "14:30"
+    window_start: "03:00"   # earliest a Shift-A punch is believable
+    window_end: "20:00"     # latest before it rolls into Shift B territory
+    crosses_midnight: false
+    short_hours: 6.0
+    long_hours: 12.0
+
+  B:
+    name: "Shift B (Malam)"
+    start: "18:00"
+    end: "02:00"
+    window_start: "15:00"
+    window_end: "10:00"     # next day
+    crosses_midnight: true
+    short_hours: 6.0
+    long_hours: 12.0
+
+  OFFICE:
+    name: "Kantor"
+    start: "08:00"
+    end: "17:00"
+    window_start: "05:00"
+    window_end: "22:00"
+    crosses_midnight: false
+    short_hours: 6.5
+    long_hours: 12.0
+
+# Weekly roster patterns. One char per weekday starting Monday.
+#   W = working day, O = week-off (WO)
+# An employee references a pattern by key in the employees table.
+roster_patterns:
+  six_day_sun_off:  "WWWWWWO"
+  five_day_weekend: "WWWWWOO"
+  continuous:       "WWWWWWW"   # rotating crews; week-off comes from explicit overrides

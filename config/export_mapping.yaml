@@ -1,0 +1,47 @@
+# Drives core/export.py. Match this to the real Excel template once it is shared
+# (Phase 5) — column names, order, and formats are all here so that is a config
+# edit, not a code change.
+#
+# Each entry: <output column header> : <source field>
+# Source fields available per day-record:
+#   emp_code, emp_name, department, work_date, shift, shift_name,
+#   clock_in, clock_out, hours, code, code_name, exception_flags,
+#   wage_component, wage_multiplier, state
+
+date_format: "%Y-%m-%d"      # strftime for work_date
+time_format: "%H:%M"         # strftime for clock_in / clock_out
+hours_decimals: 2            # worked hours rounding in the CSV
+missing_value: ""            # what to write when a field is null (e.g. MP hours)
+
+# --- Daily long format: one row per employee per day ---
+daily_long:
+  filename: "hours_daily_{period}.csv"
+  columns:
+    "Kode Karyawan": emp_code
+    "Nama": emp_name
+    "Departemen": department
+    "Tanggal": work_date
+    "Shift": shift
+    "Jam Masuk": clock_in
+    "Jam Keluar": clock_out
+    "Jam Kerja": hours
+    "Kode": code
+    "Pengecualian": exception_flags
+    "Komponen Upah": wage_component
+    "Pengali": wage_multiplier
+    "Status": state
+
+# --- Monthly pivot: employee x day-of-month grid (mirrors Monthly Review) ---
+monthly_pivot:
+  filename: "hours_pivot_{period}.csv"
+  # Fixed leading columns, then one column per day (1..31) holding either the
+  # hours worked or the code for non-worked days (WO/H/A/MP).
+  id_columns:
+    "Kode Karyawan": emp_code
+    "Nama": emp_name
+    "Departemen": department
+  day_cell: hours_or_code       # "hours_or_code" | "code" | "hours"
+  trailing_columns:
+    "Total Jam": total_hours
+    "Hari Hadir": present_days
+    "Pengecualian Terbuka": open_exceptions
