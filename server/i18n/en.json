@@ -111,5 +111,10 @@
 
   "misc.today": "Today",
   "misc.all_departments": "All departments",
+
+  "search.employee": "Search name / employee ID…",
+  "search.go": "Search",
+  "search.none": "No employees match “{q}”.",
+
   "lang.toggle": "ID"
 }

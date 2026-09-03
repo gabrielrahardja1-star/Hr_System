@@ -7,6 +7,12 @@
 {% endblock %}
 
 {% block controls %}
+  <input type="hidden" name="view" value="{{ grid.view }}">
+  <span class="search">
+    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('search.employee') }}" autocomplete="off">
+    <button class="btn" type="submit">{{ t('search.go') }}</button>
+    {% if q %}<a class="btn ghost" href="/monthly?period={{ period }}&dept={{ dept }}&view={{ grid.view }}">✕</a>{% endif %}
+  </span>
   <select name="dept" onchange="this.form.submit()">
     <option value="*">{{ t('misc.all_departments') }}</option>
     {% for d in departments %}
@@ -14,8 +20,8 @@
     {% endfor %}
   </select>
   <span class="seg">
-    <a href="/monthly?period={{ period }}&dept={{ dept }}&view=detail" class="{{ 'on' if grid.view != 'summary' }}">{{ t('view.detail') }}</a>
-    <a href="/monthly?period={{ period }}&dept={{ dept }}&view=summary" class="{{ 'on' if grid.view == 'summary' }}">{{ t('view.summary') }}</a>
+    <a href="/monthly?period={{ period }}&dept={{ dept }}&q={{ q|urlencode }}&view=detail" class="{{ 'on' if grid.view != 'summary' }}">{{ t('view.detail') }}</a>
+    <a href="/monthly?period={{ period }}&dept={{ dept }}&q={{ q|urlencode }}&view=summary" class="{{ 'on' if grid.view == 'summary' }}">{{ t('view.summary') }}</a>
   </span>
 {% endblock %}
 
@@ -31,7 +37,9 @@
 
 <section class="card grid">
   <div class="tablewrap">
-  {% if grid.view == 'summary' %}
+  {% if not grid.rows %}
+    <div class="empty">{{ t('search.none', q=q) }}</div>
+  {% elif grid.view == 'summary' %}
     <table>
       <thead><tr>
         <th>{{ t('col.employee') }}</th><th>{{ t('col.department') }}</th>
@@ -89,18 +97,24 @@
   {% endif %}
   </div>
 
+  {% set base_qs = "?period=" ~ period ~ "&dept=" ~ dept ~ "&q=" ~ (q|urlencode) ~ "&view=" ~ grid.view %}
+  {% if grid.pager.total %}
   <div class="tfoot">
-    <div>{{ t('foot.showing') }} <strong>{{ grid.pager.range_label }}</strong> {{ t('foot.of') }} {{ grid.pager.total }} {{ t('foot.employees') }}</div>
+    <div>
+      {{ t('foot.showing') }} <strong>{{ grid.pager.range_label }}</strong> {{ t('foot.of') }} {{ grid.pager.total }} {{ t('foot.employees') }}
+      {% if q %} · <em>“{{ q }}”</em>{% endif %}
+    </div>
     <div class="pager">
-      {% if grid.pager.has_prev %}<a href="?period={{ period }}&dept={{ dept }}&view={{ grid.view }}&page={{ grid.pager.number - 1 }}">‹</a>{% else %}<span class="off">‹</span>{% endif %}
+      {% if grid.pager.has_prev %}<a href="{{ base_qs }}&page={{ grid.pager.number - 1 }}">‹</a>{% else %}<span class="off">‹</span>{% endif %}
       {% for p in range(1, grid.pager.pages + 1) %}
         {% if p == grid.pager.number %}<span class="on">{{ p }}</span>
-        {% elif p == 1 or p == grid.pager.pages or (p - grid.pager.number)|abs <= 1 %}<a href="?period={{ period }}&dept={{ dept }}&view={{ grid.view }}&page={{ p }}">{{ p }}</a>
+        {% elif p == 1 or p == grid.pager.pages or (p - grid.pager.number)|abs <= 1 %}<a href="{{ base_qs }}&page={{ p }}">{{ p }}</a>
         {% elif (p == 2) or (p == grid.pager.pages - 1) %}<span class="off">…</span>{% endif %}
       {% endfor %}
-      {% if grid.pager.has_next %}<a href="?period={{ period }}&dept={{ dept }}&view={{ grid.view }}&page={{ grid.pager.number + 1 }}">›</a>{% else %}<span class="off">›</span>{% endif %}
+      {% if grid.pager.has_next %}<a href="{{ base_qs }}&page={{ grid.pager.number + 1 }}">›</a>{% else %}<span class="off">›</span>{% endif %}
     </div>
   </div>
+  {% endif %}
 </section>
 
 {% include "partials/legend.html" %}

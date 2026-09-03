@@ -95,12 +95,16 @@ def monthly(
     request: Request,
     period: str | None = None,
     dept: str = "*",
+    q: str = "",
     page: int = 1,
     view: str = "detail",
     session: Session = Depends(get_session),
 ):
     period = _current_period(session, period)
-    grid = vm.monthly_grid(session, period, dept=dept, page=page, view=view)
+    q = q.strip()
+    grid = vm.monthly_grid(
+        session, period, dept=dept, search=q or None, page=page, view=view
+    )
     t = translator_for(_lang(request))
     return render(
         request,
@@ -110,6 +114,7 @@ def monthly(
         periods=vm.available_periods(session),
         departments=vm.departments(session),
         dept=dept,
+        q=q,
         grid=grid,
         stat_cards=vm.stat_cards_monthly(grid, t),
         open_exc_badge=vm.exceptions_view(session, period)["open_total"],
@@ -121,17 +126,25 @@ def daily(
     request: Request,
     period: str | None = None,
     date: str | None = None,
+    dept: str = "*",
+    q: str = "",
     session: Session = Depends(get_session),
 ):
     period = _current_period(session, period)
+    q = q.strip()
     day_iso = _default_day(session, period, date)
-    roster = vm.daily_roster(session, period, day_iso)
+    roster = vm.daily_roster(
+        session, period, day_iso, dept=dept, search=q or None
+    )
     return render(
         request,
         "daily.html",
         active_nav="daily",
         period=period,
         periods=vm.available_periods(session),
+        departments=vm.departments(session),
+        dept=dept,
+        q=q,
         days=vm.month_days(session, period),
         day_iso=day_iso,
         roster=roster,

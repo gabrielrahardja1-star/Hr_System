@@ -3,7 +3,23 @@
 {% block heading %}{{ t('header.daily_title') }}{% endblock %}
 {% block subheading %}{{ t('header.daily_sub') }}{% endblock %}
 
+{% block controls %}
+  <input type="hidden" name="date" value="{{ day_iso }}">
+  <span class="search">
+    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('search.employee') }}" autocomplete="off">
+    <button class="btn" type="submit">{{ t('search.go') }}</button>
+    {% if q %}<a class="btn ghost" href="/daily?period={{ period }}&date={{ day_iso }}&dept={{ dept }}">✕</a>{% endif %}
+  </span>
+  <select name="dept" onchange="this.form.submit()">
+    <option value="*">{{ t('misc.all_departments') }}</option>
+    {% for d in departments %}
+    <option value="{{ d }}" {{ 'selected' if d == dept }}>{{ d }}</option>
+    {% endfor %}
+  </select>
+{% endblock %}
+
 {% block content %}
+{% set day_qs = "&dept=" ~ dept ~ "&q=" ~ (q|urlencode) %}
 <section class="statgrid">
   <div class="stat"><div class="l">{{ t('stat.total_employees') }}</div><div><span class="v">{{ roster.total }}</span></div></div>
   <div class="stat"><div class="l">{{ t('stat.present') }}</div><div><span class="v" style="color:#146c39">{{ roster.counts.P + roster.counts.SS }}</span></div></div>
@@ -16,7 +32,7 @@
   <div class="daystrip">
     <span class="lbl">{{ t('col.date') }}</span>
     {% for d in days %}
-    <a href="/daily?period={{ period }}&date={{ d.iso }}" class="{{ 'on' if d.iso == day_iso }}">
+    <a href="/daily?period={{ period }}&date={{ d.iso }}{{ day_qs }}" class="{{ 'on' if d.iso == day_iso }}">
       <div class="n">{{ d.num }}</div><div class="d">{{ d.dow }}</div>
     </a>
     {% endfor %}
@@ -32,6 +48,9 @@
         <th style="text-align:right">{{ t('col.hours') }}</th><th>{{ t('col.status') }}</th>
       </tr></thead>
       <tbody>
+      {% if not roster.rows %}
+        <tr><td colspan="7"><div class="empty">{{ t('search.none', q=q) }}</div></td></tr>
+      {% endif %}
       {% for r in roster.rows %}
         <tr>
           <td><div class="emp"><div class="av">{{ r.initials }}</div><div><div class="nm">{{ r.name }}</div><div class="id">{{ r.emp_code }}</div></div></div></td>

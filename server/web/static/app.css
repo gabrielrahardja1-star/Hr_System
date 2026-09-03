@@ -65,6 +65,12 @@ select { min-width: 130px; }
 .btn.primary { background: #3f72b0; color: #fff; border-color: #2f5a8c; font-weight: 700; }
 .btn.primary:hover { background: #325d8f; }
 .btn.ghost { background: transparent; border-color: transparent; color: #5f6875; }
+.search { display: flex; align-items: center; gap: 6px; }
+.search input[type="search"] {
+  font: inherit; font-size: 12.5px; padding: 7px 10px; min-width: 210px;
+  border: 1px solid #cfd4db; border-radius: 5px; background: #fff;
+}
+.search input[type="search"]:focus { outline: none; border-color: #3f72b0; box-shadow: 0 0 0 2px #dbe9fd; }
 .seg { display: flex; background: #eff1f4; border: 1px solid #dcdfe4; border-radius: 5px; padding: 2px; gap: 2px; }
 .seg a, .seg button { border: 0; background: transparent; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 4px; color: #5f6875; }
 .seg a.on, .seg button.on { background: #fff; color: #1f2430; box-shadow: 0 1px 2px rgba(20,24,31,.12); }

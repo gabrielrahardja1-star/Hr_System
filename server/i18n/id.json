@@ -111,5 +111,10 @@
 
   "misc.today": "Hari ini",
   "misc.all_departments": "Semua departemen",
+
+  "search.employee": "Cari nama / ID karyawan…",
+  "search.go": "Cari",
+  "search.none": "Tidak ada karyawan yang cocok dengan “{q}”.",
+
   "lang.toggle": "EN"
 }

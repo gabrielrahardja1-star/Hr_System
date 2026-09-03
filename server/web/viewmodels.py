@@ -97,10 +97,17 @@ def month_days(session: Session, period: str) -> list[dict]:
     return days
 
 
-def _employee_query(dept: str | None):
+def _employee_query(dept: str | None, search: str | None = None):
     q = select(Employee).where(Employee.status != EmployeeStatus.inactive)
     if dept and dept != "*":
         q = q.where(Employee.department == dept)
+    if search:
+        like = f"%{search.strip()}%"
+        q = q.where(
+            Employee.name.ilike(like)
+            | Employee.emp_code.ilike(like)
+            | Employee.device_user_id.ilike(like)
+        )
     return q.order_by(Employee.emp_code)
 
 
@@ -175,13 +182,14 @@ def monthly_grid(
     period: str,
     *,
     dept: str | None = None,
+    search: str | None = None,
     page: int = 1,
     view: str = "detail",
 ) -> dict:
     start, end, _ = period_bounds(period)
     days = month_days(session, period)
 
-    all_emps = session.execute(_employee_query(dept)).scalars().all()
+    all_emps = session.execute(_employee_query(dept, search)).scalars().all()
     pager = Page(number=max(1, page), total=len(all_emps), per_page=PER_PAGE)
     emps = all_emps[pager.start : pager.start + pager.per_page]
     emp_ids = [e.id for e in emps]
@@ -247,15 +255,23 @@ def monthly_grid(
         "rows": rows,
         "pager": pager,
         "view": view,
+        "search": search or "",
         "col_span": len(days) + 2,
         "cells_need_review": total_flagged,
         "summary_cols": ["P", "A", "MP", "SS", "WO", "H"],
     }
 
 
-def daily_roster(session: Session, period: str, day_iso: str) -> dict:
+def daily_roster(
+    session: Session,
+    period: str,
+    day_iso: str,
+    *,
+    dept: str | None = None,
+    search: str | None = None,
+) -> dict:
     day = dt.date.fromisoformat(day_iso)
-    emps = session.execute(_employee_query(None)).scalars().all()
+    emps = session.execute(_employee_query(dept, search)).scalars().all()
     emp_by_id = {e.id: e for e in emps}
     recs = session.execute(
         select(DayRecord).where(
@@ -298,7 +314,15 @@ def daily_roster(session: Session, period: str, day_iso: str) -> dict:
                 "has_record": rec is not None,
             }
         )
-    return {"day": day, "day_iso": day_iso, "rows": rows, "counts": counts, "total": len(emps)}
+    return {
+        "day": day,
+        "day_iso": day_iso,
+        "rows": rows,
+        "counts": counts,
+        "total": len(emps),
+        "search": search or "",
+        "dept": dept or "*",
+    }
 
 
 def cell_detail(session: Session, employee_id: int, day_iso: str) -> dict | None:
