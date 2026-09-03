@@ -117,6 +117,24 @@ def departments(session: Session) -> list[str]:
     ).scalars().all()
 
 
+def employee_options(session: Session) -> list[dict]:
+    """Every active employee, for the search box's autocomplete list."""
+    rows = session.execute(
+        select(Employee)
+        .where(Employee.status != EmployeeStatus.inactive)
+        .order_by(Employee.name)
+    ).scalars().all()
+    return [
+        {
+            "name": e.name,
+            "emp_code": e.emp_code,
+            "department": e.department,
+            "device_user_id": e.device_user_id,
+        }
+        for e in rows
+    ]
+
+
 @dataclass
 class Page:
     number: int

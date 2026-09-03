@@ -9,7 +9,8 @@
 {% block controls %}
   <input type="hidden" name="view" value="{{ grid.view }}">
   <span class="search">
-    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('search.employee') }}" autocomplete="off">
+    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('search.employee') }}"
+           list="emp-list" autocomplete="off">
     <button class="btn" type="submit">{{ t('search.go') }}</button>
     {% if q %}<a class="btn ghost" href="/monthly?period={{ period }}&dept={{ dept }}&view={{ grid.view }}">✕</a>{% endif %}
   </span>

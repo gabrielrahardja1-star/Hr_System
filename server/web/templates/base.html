@@ -70,5 +70,12 @@
     </div>
   </main>
 </div>
+{% if emp_options is defined %}
+<datalist id="emp-list">
+  {% for e in emp_options %}
+  <option value="{{ e.name }}">{{ e.emp_code }} · {{ e.department }}</option>
+  {% endfor %}
+</datalist>
+{% endif %}
 </body>
 </html>
