@@ -6,12 +6,17 @@ venv/
 *.egg-info/
 .pytest_cache/
 
-# Local runtime data — never commit the attendance database or exports
+# Local runtime data — never commit the attendance database, exports, or
+# uploaded Talenta skeletons (they contain employee PII)
 /data/*.db
 /data/*.db-wal
 /data/*.db-shm
 /data/exports/
+/data/*_exports/
 /agent/spool.db*
+*export_attendance*.xlsx
+talenta_*.xlsx
+skeleton_*.xlsx
 
 # Environment
 .env

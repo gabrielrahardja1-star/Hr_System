@@ -1,19 +1,23 @@
-# MergeCoal — Attendance → Hours
+# Attendance → Talenta (PT Cinta Kerja Indonesia)
 
-Turns fingerprint-terminal punches into **accurate daily hours-worked data** in a
-shape the existing Excel payroll formulas can consume. It does **not** do payroll
-math (tax, BPJS, THR, overtime rates) — that stays in Excel.
+Turns fingerprint-terminal punches into an **accurate, reviewed daily attendance
+file that imports into Mekari Talenta**. Talenta is the payroll engine — base
+pay, overtime, tax, BPJS all stay there. This system only produces trustworthy
+Check In / Check Out / Attendance Code values and flags what a human must fix.
 
 ```
 SITE (offline-tolerant)                       HQ
 ┌──────────────────────────┐                 ┌────────────────────────────┐
 │ Deli E-13750 ──eth──▶ PC │                 │ management system          │
-│   agent (Phase 4)        │   POST batch    │  FastAPI + SQLite          │
-│    ├ pyzk poll           │ ─ ─ ─ ─ ─ ─ ─ ▶ │  /api/v1/punches           │
-│    └ local spool ◀ retry │  when link up   │  web UI :8000 (Phase 2)    │
+│   agent (Phase 4)        │   POST batch    │  FastAPI + SQLite           │
+│    ├ pyzk poll           │ ─ ─ ─ ─ ─ ─ ─ ▶ │  /api/v1/punches            │
+│    └ local spool ◀ retry │  when link up   │  web UI :8000               │
 └──────────────────────────┘                 └────────────┬───────────────┘
-                                                          │ CSV export
-                                                          ▼   existing Excel
+                                       Talenta export (skeleton)  │
+                                            ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ▼
+                                      fill Check In / Check Out / Code
+                                                             │
+                                              re-import  ────▶  Talenta
 ```
 
 **Source-of-truth rule:** `punches` is an immutable log of exactly what the
@@ -28,27 +32,48 @@ edited. That's what makes an adjusted hours figure defensible at payroll time.
 | | |
 |---|---|
 | ✅ Phase 1 | ingest API, hours engine, status coding, exceptions, CSV export, CLI tools, device probe, tests |
-| ✅ Phase 2 | review web UI — Monthly grid, Daily roster, Exceptions queue, HTMX cell detail + manual correction, id/en toggle |
-| ⬜ Phase 3 | Export Runs screen, Wage Mapping screen |
+| ✅ Phase 2 | review web UI — Dashboard rollup, Monthly grid, Daily roster, Exceptions queue, HTMX cell detail + manual correction, id/en toggle |
+| 🟡 Phase 5 | **Talenta export** — enrich a Talenta "Import Attendance" skeleton with reviewed Check In / Check Out / Attendance Code (`/payroll-export`, `tools.manage talenta`). Working; pending the client's full Attendance-Code list |
+| ⬜ Phase 3 | Wage Mapping screen, export-run history |
 | ⬜ Phase 4 | site agent (pyzk poller + spool + PyInstaller build) |
-| ⬜ Phase 5 | Excel template integration — **blocked until the real template is shared** |
+
+### Talenta export (Phase 5)
+
+The payroll period is **26th → 25th** (period `2026-08` = 2026-07-26 … 2026-08-25).
+
+1. HR exports the scheduled attendance template from Talenta for the period.
+2. Upload it at **`/payroll-export`** (or `python -m tools.manage talenta
+   --skeleton <file> --period 2026-08 --kind draft`). The system fills only
+   `Attendance Code`, `Check In`, `Check Out` from reviewed punch data; every
+   other column passes through byte-for-byte.
+3. A `final` run is refused while any working-day row is still *held* (missing
+   punch, unresolved short shift, employee not mapped, no punch data). A `draft`
+   run fills what it can and lists the rest.
+4. Download the result, re-import to Talenta.
+
+`config/talenta_export.yaml` holds the column map and the code map
+(`P`/`SS` → `H` today; extend when the client sends the full Talenta code list).
+Employees are matched by `Employee.talenta_id` ↔ `device_user_id`.
 
 ### The web UI
 
 ```bash
 make serve            # or: uvicorn server.main:app --port 8000
-# open http://localhost:8000  → redirects to /monthly
+# open http://localhost:8000  → redirects to /dashboard
 ```
 
-Screens: **/monthly** (employee × day grid, click any cell for punch detail +
-"Edit punch"), **/daily** (single-day roster), **/exceptions** (the review queue
-that gates a final export — filter by kind, resolve, or run the export from
-here). Language toggle top-right, Indonesian by default. Editing a punch writes a
-`corrections` row and recomputes that one day; the raw device punch is untouched.
+Screens: **/dashboard** (period rollup — headcount, attendance-mix bar,
+latest-day snapshot, exceptions by kind, per-department totals, recent export
+runs, and an export-readiness banner), **/monthly** (employee × day grid, click
+any cell for punch detail + "Edit punch"), **/daily** (single-day roster),
+**/exceptions** (the review queue that gates a final export — filter by kind,
+resolve, or run the export from here). Language toggle top-right, Indonesian by
+default. Editing a punch writes a `corrections` row and recomputes that one day;
+the raw device punch is untouched.
 
 Known Phase-2 gaps: the exception *detail sentence* ("1 punch — need an even
 count…") is still English only (the labels, codes, and legend are localised);
-Dashboard / Payroll Export screens are stubs marked "soon".
+the Payroll Export screen is still a stub marked "soon".
 
 ---
 

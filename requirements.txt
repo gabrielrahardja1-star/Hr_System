@@ -9,6 +9,7 @@ pydantic-settings>=2.5
 jinja2>=3.1
 python-multipart>=0.0.9
 pyyaml>=6.0
+openpyxl>=3.1          # read/write the Talenta Import Attendance .xlsx
 
 # --- Tools / tests ---
 httpx>=0.27          # tools/mock_punch_source.py, later the agent's sender

@@ -7,8 +7,8 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,6 +17,7 @@ from server.config import get_settings
 from server.core.exceptions import resolve_exception
 from server.core.export import run_export
 from server.core.recompute import recompute_employee
+from server.core.talenta_export import enrich_skeleton
 from server.db import get_session
 from server.models import Correction, DayRecord, Employee
 from server.web import viewmodels as vm
@@ -87,7 +88,28 @@ def _default_day(session: Session, period: str, requested: str | None) -> str:
 
 @router.get("/", response_class=HTMLResponse)
 def index() -> RedirectResponse:
-    return RedirectResponse("/monthly")
+    return RedirectResponse("/dashboard")
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+def dashboard(
+    request: Request,
+    period: str | None = None,
+    session: Session = Depends(get_session),
+):
+    period = _current_period(session, period)
+    t = translator_for(_lang(request))
+    view = vm.dashboard_view(session, period)
+    return render(
+        request,
+        "dashboard.html",
+        active_nav="dashboard",
+        period=period,
+        periods=vm.available_periods(session),
+        view=view,
+        stat_cards=vm.stat_cards_dashboard(view, t),
+        open_exc_badge=view["open_exceptions"],
+    )
 
 
 @router.get("/monthly", response_class=HTMLResponse)
@@ -175,6 +197,76 @@ def exceptions(
         periods=vm.available_periods(session),
         data=data,
         open_exc_badge=unfiltered["open_total"],
+    )
+
+
+@router.get("/payroll-export", response_class=HTMLResponse)
+def payroll_export(
+    request: Request,
+    period: str | None = None,
+    session: Session = Depends(get_session),
+):
+    tperiods = vm.talenta_periods(session)
+    period = period if period in {p["value"] for p in tperiods} else tperiods[0]["value"]
+    return render(
+        request,
+        "payroll_export.html",
+        active_nav="payroll",
+        period=period,
+        periods=vm.available_periods(session),
+        tperiods=tperiods,
+        result=None,
+        open_exc_badge=vm.exceptions_view(session, period)["open_total"]
+        if period in {p["value"] for p in vm.available_periods(session)}
+        else 0,
+    )
+
+
+@router.post("/payroll-export", response_class=HTMLResponse)
+async def payroll_export_run(
+    request: Request,
+    period: str = Form(...),
+    kind: str = Form("draft"),
+    skeleton: UploadFile = File(...),
+    session: Session = Depends(get_session),
+):
+    settings = get_settings()
+    upload_dir = settings.export_dir / "_uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    src = upload_dir / f"skeleton_{period}_{dt.datetime.now():%Y%m%d%H%M%S}.xlsx"
+    src.write_bytes(await skeleton.read())
+
+    error = None
+    result = None
+    try:
+        result = enrich_skeleton(session, src, period, kind=kind)
+    except Exception as exc:  # noqa: BLE001
+        error = f"{type(exc).__name__}: {exc}"
+
+    return render(
+        request,
+        "payroll_export.html",
+        active_nav="payroll",
+        period=period,
+        periods=vm.available_periods(session),
+        tperiods=vm.talenta_periods(session),
+        result=result,
+        error=error,
+        uploaded_name=skeleton.filename,
+        open_exc_badge=0,
+    )
+
+
+@router.get("/payroll-export/download/{filename}")
+def payroll_export_download(filename: str):
+    settings = get_settings()
+    path = (settings.export_dir / filename).resolve()
+    if path.parent != settings.export_dir.resolve() or not path.is_file():
+        return HTMLResponse("Not found", status_code=404)
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=filename,
     )
 
 

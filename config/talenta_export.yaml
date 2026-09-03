@@ -1,0 +1,54 @@
+# Talenta "Import Attendance" enrichment.
+#
+# We take a skeleton exported FROM Talenta (every employee x every day in the
+# period, with Shift / Schedule / org metadata already filled) and write back
+# ONLY three columns from our reviewed punch data:
+#   - Attendance Code   (col I)
+#   - Check In          (col J)
+#   - Check Out         (col K)
+# Everything else passes through untouched. Overtime + Time Off columns are
+# Talenta's / out of scope for v1.
+
+# Header text -> our internal role. Matched case-insensitively against row 1.
+# The starred names are Talenta's required columns.
+columns:
+  employee_id: "Employee ID*"
+  full_name: "Full Name"
+  date: "Date*"
+  shift: "Shift"
+  schedule_in: "Schedule In"
+  schedule_out: "Schedule Out"
+  attendance_code: "Attendance Code"   # <- we write
+  check_in: "Check In"                  # <- we write
+  check_out: "Check Out"                # <- we write
+  time_off_code: "Time Off Code"
+
+# Shift-column values that mean "not a working day" -> pass the row through
+# untouched (Talenta already knows it is a day off / holiday).
+non_working_shift_values:
+  - dayoff
+  - "National Holiday"
+  - "Day Off"
+  - libur
+  - cuti
+
+time_format: "%H:%M"      # Talenta wants HH:MM, 24h
+
+# On a skeleton WORKING-day row that has a clean in/out pair and no open
+# exception, we write this Attendance Code. `code_map` overrides per our day
+# code; anything not listed uses `default_present_code`.
+#
+# Rows we CANNOT finalise are HELD (final run blocked, draft run leaves the 3
+# cells blank + lists them):
+#   - our day has an open blocking exception (missing punch, short shift, …)
+#   - no in/out pair (absent, single punch) — needs the real Talenta absent /
+#     leave code, which the client will supply
+#   - employee not mapped (no talenta_id) or punches not synced yet
+default_present_code: "H"
+code_map:
+  P:  "H"
+  SS: "H"      # only reached if SS is not configured to block; still "present"
+
+# A working-day skeleton row with no matching reviewed day record is HELD
+# rather than silently left blank.
+hold_when_no_record: true

@@ -59,6 +59,7 @@ def build_employees(count: int) -> list[dict]:
             {
                 "device_user_id": str(1001 + i),
                 "emp_code": f"KM-{1400 + i * 3}",
+                "talenta_id": f"CKI-A23{4000 + i * 3:04d}",
                 "name": f"{first} {last}",
                 "department": dept,
                 "status": status,

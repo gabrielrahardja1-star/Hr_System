@@ -19,7 +19,9 @@
     </div>
     <nav class="nav">
       <div class="nav-head">{{ t('nav.section_ops') }}</div>
-      <span class="disabled"><span class="ico">▦</span>{{ t('nav.dashboard') }}<span class="soon">soon</span></span>
+      <a href="/dashboard?period={{ period }}" class="{{ 'active' if active_nav == 'dashboard' }}">
+        <span class="ico">▦</span>{{ t('nav.dashboard') }}
+      </a>
       <a href="/daily?period={{ period }}" class="{{ 'active' if active_nav == 'daily' }}">
         <span class="ico">▤</span>{{ t('nav.daily') }}
       </a>
@@ -30,7 +32,9 @@
         <span class="ico">⚠</span>{{ t('nav.exceptions') }}
         {% if open_exc_badge %}<span class="badge">{{ open_exc_badge }}</span>{% endif %}
       </a>
-      <span class="disabled"><span class="ico">⇩</span>{{ t('nav.payroll') }}<span class="soon">soon</span></span>
+      <a href="/payroll-export?period={{ period }}" class="{{ 'active' if active_nav == 'payroll' }}">
+        <span class="ico">⇩</span>{{ t('nav.payroll') }}
+      </a>
     </nav>
     <div class="sb-user">
       <div class="av">HR</div>

@@ -2,8 +2,9 @@
 
     python -m tools.manage recompute --period 2026-08
     python -m tools.manage exceptions --period 2026-08
-    python -m tools.manage export --period 2026-08 --kind draft
-    python -m tools.manage export --period 2026-08 --kind final
+    python -m tools.manage export --period 2026-08 --kind draft      # legacy CSV
+    python -m tools.manage talenta --skeleton talenta_aug.xlsx --period 2026-08 --kind draft
+    python -m tools.manage talenta --skeleton talenta_aug.xlsx --period 2026-08 --kind final
     python -m tools.manage correct --emp KM-1402 --date 2026-08-12 \
         --set-out "2026-08-12 14:40" --reason "supervisor log confirms" --actor rina
 """
@@ -157,6 +158,32 @@ def cmd_correct(args) -> None:
     )
 
 
+def cmd_talenta(args) -> None:
+    from server.core.talenta_export import enrich_skeleton
+
+    with session_scope() as session:
+        r = enrich_skeleton(
+            session, args.skeleton, args.period, kind=args.kind, out_path=args.out
+        )
+    print(
+        f"\nTalenta enrich {args.period} [{args.kind}] — {r.skeleton_rows} skeleton rows\n"
+        f"  enriched : {r.enriched}\n"
+        f"  held     : {r.held}\n"
+        f"  passthrough (day off / holiday / leave): {r.passthrough}\n"
+        f"  skipped  : {r.skipped}"
+    )
+    if r.blocked:
+        print(f"\nFINAL RUN BLOCKED — {r.held} row(s) not finalised. Sample:")
+    elif r.held:
+        print(f"\nDraft written with {r.held} row(s) left blank. Sample:")
+    for o in r.held_rows[:15]:
+        print(f"  row {o.row:>4}  {o.employee_id:14} {o.date}  {o.reason}")
+    if len(r.held_rows) > 15:
+        print(f"  … and {len(r.held_rows) - 15} more")
+    if r.out_path:
+        print(f"\n  wrote: {r.out_path}")
+
+
 def main() -> None:
     init_db()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -170,6 +197,13 @@ def main() -> None:
     p.add_argument("--kind", choices=["draft", "final"], default="draft")
     p.add_argument("--actor", default="cli")
     p.set_defaults(fn=cmd_export)
+
+    p = sub.add_parser("talenta", help="enrich a Talenta Import Attendance skeleton")
+    p.add_argument("--skeleton", required=True, help="xlsx exported from Talenta for the period")
+    p.add_argument("--period", required=True, help="YYYY-MM (period ending 25th of that month)")
+    p.add_argument("--kind", choices=["draft", "final"], default="draft")
+    p.add_argument("--out", default=None)
+    p.set_defaults(fn=cmd_talenta)
 
     p = sub.add_parser("correct")
     p.add_argument("--emp", required=True)

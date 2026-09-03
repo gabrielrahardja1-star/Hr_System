@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}{{ t('payroll.title') }}{% endblock %}
+{% block heading %}{{ t('payroll.title') }}{% endblock %}
+{% block subheading %}{{ t('payroll.sub') }}{% endblock %}
+{% block controls %}{% endblock %}
+
+{% block content %}
+<section class="card pad">
+  <div style="font-size:12.5px;font-weight:700;color:#1f2430;margin-bottom:4px">{{ t('payroll.how_title') }}</div>
+  <ol style="margin:0;padding-left:18px;font-size:12px;color:#5f6875;line-height:1.7">
+    <li>{{ t('payroll.step1') }}</li>
+    <li>{{ t('payroll.step2') }}</li>
+    <li>{{ t('payroll.step3') }}</li>
+  </ol>
+</section>
+
+<section class="card pad">
+  <form method="post" action="/payroll-export" enctype="multipart/form-data"
+        style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end">
+    <div>
+      <label style="display:block;font-size:10.5px;font-weight:700;color:#5f6875;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">{{ t('foot.period') }}</label>
+      <select name="period" style="min-width:200px">
+        {% for p in tperiods %}
+        <option value="{{ p.value }}" {{ 'selected' if p.value == period }}>{{ p.label }} · {{ p.range }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="display:block;font-size:10.5px;font-weight:700;color:#5f6875;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">{{ t('payroll.skeleton') }}</label>
+      <input type="file" name="skeleton" accept=".xlsx" required style="font:inherit;font-size:12.5px">
+    </div>
+    <div>
+      <label style="display:block;font-size:10.5px;font-weight:700;color:#5f6875;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">{{ t('payroll.run_kind') }}</label>
+      <span class="seg" style="display:inline-flex">
+        <label style="padding:5px 12px;cursor:pointer"><input type="radio" name="kind" value="draft" checked> {{ t('payroll.draft') }}</label>
+        <label style="padding:5px 12px;cursor:pointer"><input type="radio" name="kind" value="final"> {{ t('payroll.final') }}</label>
+      </span>
+    </div>
+    <button class="btn primary" type="submit">{{ t('payroll.generate') }}</button>
+  </form>
+  <div style="margin-top:8px;font-size:11px;color:#8a919c">{{ t('payroll.hint') }}</div>
+</section>
+
+{% if error %}
+<div class="banner block">⚠ {{ error }}</div>
+{% endif %}
+
+{% if result %}
+{% set r = result %}
+{% if r.blocked %}
+<div class="banner block">
+  ⚠ {{ t('payroll.blocked', n=r.held) }}
+</div>
+{% elif r.held %}
+<div class="banner" style="background:#fdf3e7;color:#7d4409;border:1px solid #f3d9b4">
+  {{ t('payroll.draft_done', enriched=r.enriched, held=r.held) }}
+</div>
+{% else %}
+<div class="banner clear">✓ {{ t('payroll.clean_done', enriched=r.enriched) }}</div>
+{% endif %}
+
+<section class="statgrid">
+  <div class="stat"><div class="l">{{ t('payroll.enriched') }}</div><div><span class="v" style="color:#146c39">{{ r.enriched }}</span></div></div>
+  <div class="stat"><div class="l">{{ t('payroll.held') }}</div><div><span class="v" style="color:#96500a">{{ r.held }}</span></div></div>
+  <div class="stat"><div class="l">{{ t('payroll.passthrough') }}</div><div><span class="v">{{ r.passthrough }}</span></div></div>
+  <div class="stat"><div class="l">{{ t('payroll.rows') }}</div><div><span class="v">{{ r.skeleton_rows }}</span></div></div>
+</section>
+
+{% if r.out_path %}
+<section class="card pad" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+  <div style="font-size:12.5px;color:#3d4859">
+    {{ t('payroll.file_ready') }} <strong>{{ r.out_path.name }}</strong>
+  </div>
+  <a class="btn primary" href="/payroll-export/download/{{ r.out_path.name }}">↓ {{ t('payroll.download') }}</a>
+</section>
+{% endif %}
+
+{% if r.held_rows %}
+<section class="card">
+  <div class="pad" style="font-size:12.5px;font-weight:700;color:#1f2430;border-bottom:1px solid #eceef1">
+    {{ t('payroll.held_title') }} — {{ r.held_rows|length }}
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>{{ t('col.employee') }}</th><th>{{ t('col.date') }}</th><th>{{ t('payroll.reason') }}</th>
+      </tr></thead>
+      <tbody>
+      {% for o in r.held_rows[:200] %}
+        <tr>
+          <td style="font-weight:600;color:#1b2029">{{ o.employee_id }}</td>
+          <td>{{ o.date }}</td>
+          <td style="color:#5f6875">{{ o.reason }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if r.held_rows|length > 200 %}
+  <div class="pad" style="font-size:11.5px;color:#8a919c">… {{ r.held_rows|length - 200 }} more</div>
+  {% endif %}
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

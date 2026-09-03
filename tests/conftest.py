@@ -65,10 +65,12 @@ def make_employee(session):
         roster_pattern="six_day_sun_off",
         status=EmployeeStatus.active,
         active_from=dt.date(2025, 1, 1),
+        talenta_id=None,
     ):
         emp = Employee(
             device_user_id=device_user_id,
             emp_code=emp_code,
+            talenta_id=talenta_id,
             name=name,
             department=department,
             shift_key=shift_key,

@@ -82,6 +82,11 @@ class Employee(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     device_user_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     emp_code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    # Talenta "Employee ID*" (e.g. CKI-A230065) — the key the enriched export
+    # writes rows against. Nullable until the roster is mapped.
+    talenta_id: Mapped[str | None] = mapped_column(
+        String(32), unique=True, index=True, nullable=True
+    )
     name: Mapped[str] = mapped_column(String(128))
     department: Mapped[str] = mapped_column(String(64), index=True)
     status: Mapped[EmployeeStatus] = mapped_column(

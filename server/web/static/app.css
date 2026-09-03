@@ -180,6 +180,19 @@ form.edit .hint { font-size: 11px; color: #8a919c; line-height: 1.4; }
 .banner.clear { background: #eef8f1; color: #1c6b41; border: 1px solid #c6e6d3; }
 .empty { padding: 26px; text-align: center; font-size: 13px; color: #5f6875; }
 
+/* ---- dashboard ---- */
+.dash-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.card-h { margin: 0; font-size: 12px; font-weight: 700; color: #5f6875; text-transform: uppercase; letter-spacing: .8px; }
+.card-h-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.card-h-row.pad { margin: 0; padding: 13px 16px; border-bottom: 1px solid #eceef1; }
+.muted { font-size: 11.5px; color: #79818e; }
+.mixbar { display: flex; height: 16px; border-radius: 4px; overflow: hidden; background: #f1f2f4; }
+.mixbar span { display: block; min-width: 2px; }
+.mixlegend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; }
+.mixlegend .mi { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.mixlegend .mi .n { font-size: 12.5px; font-weight: 700; color: #1f2430; }
+.mixlegend .mi .p { font-size: 11px; color: #8a919c; }
+
 .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 8px 18px; }
 .legend .li { display: flex; align-items: flex-start; gap: 8px; }
 .legend .nm { font-size: 12px; font-weight: 600; color: #1f2430; }

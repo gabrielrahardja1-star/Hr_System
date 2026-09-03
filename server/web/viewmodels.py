@@ -22,6 +22,7 @@ from server.models import (
     Exception_,
     ExceptionKind,
     ExceptionState,
+    ExportRun,
     Holiday,
 )
 
@@ -69,6 +70,40 @@ def available_periods(session: Session) -> list[dict]:
     for p in periods:
         y, m = (int(x) for x in p.split("-"))
         out.append({"value": p, "label": f"{MON_SHORT[m]} {y}"})
+    return out
+
+
+def talenta_periods(session: Session) -> list[dict]:
+    """26→25 payroll periods that overlap the day-record data, newest first."""
+    from server.core.period import talenta_period_bounds, talenta_period_for
+
+    span = session.execute(
+        select(func.min(DayRecord.work_date), func.max(DayRecord.work_date))
+    ).one()
+    lo, hi = span
+    if lo is None:
+        today = dt.date.today()
+        labels = [talenta_period_for(today)]
+    else:
+        labels = []
+        label = talenta_period_for(lo)
+        seen = set()
+        cursor = lo
+        while cursor <= hi:
+            lbl = talenta_period_for(cursor)
+            if lbl not in seen:
+                seen.add(lbl)
+                labels.append(lbl)
+            cursor += dt.timedelta(days=1)
+    out = []
+    for lbl in sorted(set(labels), reverse=True):
+        y, m = (int(x) for x in lbl.split("-"))
+        s, e = talenta_period_bounds(lbl)
+        out.append({
+            "value": lbl,
+            "label": f"{MON_SHORT[m]} {y}",
+            "range": f"{s.strftime('%d %b')} – {e.strftime('%d %b %Y')}",
+        })
     return out
 
 
@@ -488,6 +523,156 @@ def exceptions_view(
         "kinds": ["MP", "SS", "A", "LONG", "DUP"],
         "export_clear": blocking_total == 0,
     }
+
+
+def dashboard_view(session: Session, period: str) -> dict:
+    """Period-level rollup for the landing screen: headcount, attendance mix,
+    the latest-day snapshot, exceptions, per-department totals, recent exports.
+    """
+    start, end, _ = period_bounds(period)
+
+    active_emps = session.execute(
+        select(Employee)
+        .where(Employee.status != EmployeeStatus.inactive)
+        .order_by(Employee.department)
+    ).scalars().all()
+    dept_headcount: dict[str, int] = {}
+    for e in active_emps:
+        dept_headcount[e.department] = dept_headcount.get(e.department, 0) + 1
+
+    triples = session.execute(
+        select(DayRecord, Employee)
+        .join(Employee, DayRecord.employee_id == Employee.id)
+        .where(DayRecord.work_date >= start, DayRecord.work_date <= end)
+    ).all()
+
+    codes = ["P", "A", "MP", "SS", "WO", "H"]
+    code_counts = {c: 0 for c in codes}
+    total_minutes = 0
+    latest_day: dt.date | None = None
+    attended_days: set[dt.date] = set()
+    dept_roll: dict[str, dict] = {}
+    for rec, emp in triples:
+        if rec.code in code_counts:
+            code_counts[rec.code] += 1
+        if rec.worked_minutes:
+            total_minutes += rec.worked_minutes
+        if latest_day is None or rec.work_date > latest_day:
+            latest_day = rec.work_date
+        if rec.code in ("P", "SS", "MP"):
+            attended_days.add(rec.work_date)
+        b = dept_roll.setdefault(emp.department, {"present": 0, "minutes": 0})
+        if rec.code in ("P", "SS"):
+            b["present"] += 1
+        if rec.worked_minutes:
+            b["minutes"] += rec.worked_minutes
+
+    total_records = sum(code_counts.values())
+    mix = [
+        {
+            "code": c,
+            "count": code_counts[c],
+            "pct": round(100 * code_counts[c] / total_records, 1) if total_records else 0.0,
+            "pal": PALETTE[c],
+        }
+        for c in codes
+    ]
+
+    exc = exceptions_view(session, period)
+    dept_exc = dict(
+        session.execute(
+            select(Employee.department, func.count(Exception_.id))
+            .join(DayRecord, Exception_.day_record_id == DayRecord.id)
+            .join(Employee, DayRecord.employee_id == Employee.id)
+            .where(
+                Exception_.state == ExceptionState.open,
+                DayRecord.work_date >= start,
+                DayRecord.work_date <= end,
+            )
+            .group_by(Employee.department)
+        ).all()
+    )
+    exc_kinds = [
+        {"kind": k, "count": exc["counts"].get(k, 0), "pal": KIND_PALETTE.get(k, PALETTE[""])}
+        for k in exc["kinds"]
+        if exc["counts"].get(k, 0)
+    ]
+
+    departments_rows = []
+    for d in sorted(dept_headcount):
+        roll = dept_roll.get(d, {"present": 0, "minutes": 0})
+        departments_rows.append(
+            {
+                "department": d,
+                "employees": dept_headcount[d],
+                "present_days": roll["present"],
+                "hours": round(roll["minutes"] / 60, 1),
+                "open_exceptions": dept_exc.get(d, 0),
+            }
+        )
+
+    as_of = max(attended_days) if attended_days else (latest_day or end)
+    as_of_iso = as_of.isoformat()
+    roster = daily_roster(session, period, as_of_iso)
+    snapshot = {
+        "date_iso": as_of_iso,
+        "date_label": f"{DOW[as_of.weekday()]} {as_of.day} {MON_SHORT[as_of.month]} {as_of.year}",
+        "total": roster["total"],
+        "present": roster["counts"]["P"] + roster["counts"]["SS"],
+        "absent": roster["counts"]["A"],
+        "pending": roster["counts"]["MP"] + roster["counts"]["SS"],
+        "off": roster["counts"]["WO"] + roster["counts"]["H"],
+    }
+
+    tz = get_settings().timezone
+    runs = session.execute(
+        select(ExportRun).order_by(ExportRun.generated_at.desc()).limit(5)
+    ).scalars().all()
+    run_rows = [
+        {
+            "period": r.period,
+            "kind": r.kind,
+            "status": r.status.value,
+            "generated_by": r.generated_by,
+            "generated_at": r.generated_at.astimezone(tz).strftime("%d %b %Y · %H:%M"),
+            "record_count": r.record_count,
+            "gross_hours": r.gross_hours,
+            "blocked_reason": r.blocked_reason,
+        }
+        for r in runs
+    ]
+
+    return {
+        "period": period,
+        "total_employees": len(active_emps),
+        "gross_hours": round(total_minutes / 60, 1),
+        "total_records": total_records,
+        "mix": mix,
+        "code_counts": code_counts,
+        "open_exceptions": exc["open_total"],
+        "blocking": exc["blocking_total"],
+        "oldest_open": exc["oldest_open"],
+        "export_clear": exc["export_clear"],
+        "exc_kinds": exc_kinds,
+        "departments": departments_rows,
+        "snapshot": snapshot,
+        "runs": run_rows,
+    }
+
+
+def stat_cards_dashboard(view: dict, t) -> list[dict]:
+    exc = view["open_exceptions"]
+    return [
+        {"label": t("stat.total_employees"), "value": view["total_employees"],
+         "fg": "#1f2430", "trend": ""},
+        {"label": t("dash.present_snapshot"), "value": view["snapshot"]["present"],
+         "fg": "#146c39", "trend": f'/ {view["snapshot"]["total"]}'},
+        {"label": t("stat.open_exceptions"), "value": exc,
+         "fg": "#96500a" if exc else "#146c39",
+         "trend": f'{view["blocking"]} ⚠' if view["blocking"] else "—"},
+        {"label": t("dash.gross_hours"), "value": view["gross_hours"],
+         "fg": "#1f2430", "trend": t("dash.hours_unit")},
+    ]
 
 
 def stat_cards_monthly(grid: dict, t) -> list[dict]:

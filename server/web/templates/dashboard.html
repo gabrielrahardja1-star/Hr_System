@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}{{ t('header.dashboard_title') }}{% endblock %}
+{% block heading %}{{ t('header.dashboard_title') }}{% endblock %}
+{% block subheading %}{{ t('header.dashboard_sub') }}{% endblock %}
+
+{% block content %}
+<section class="statgrid">
+  {% for s in stat_cards %}
+  <div class="stat">
+    <div class="l">{{ s.label }}</div>
+    <div><span class="v" style="color:{{ s.fg }}">{{ s.value }}</span><span class="trend" style="color:{{ s.fg }}">{{ s.trend }}</span></div>
+  </div>
+  {% endfor %}
+</section>
+
+{% if view.export_clear %}
+<div class="banner clear">{{ t('dash.export_clear') }}</div>
+{% else %}
+<div class="banner block">{{ t('dash.export_blocked', n=view.blocking) }}</div>
+{% endif %}
+
+<div class="dash-cols">
+  <section class="card pad">
+    <div class="card-h-row">
+      <h2 class="card-h">{{ t('dash.attendance_mix') }}</h2>
+      <span class="muted">{{ view.total_records }} {{ t('dash.day_records') }}</span>
+    </div>
+    {% if view.total_records %}
+    <div class="mixbar">
+      {% for m in view.mix %}{% if m.count %}
+      <span style="width:{{ m.pct }}%;background:{{ m.pal.fg }}" title="{{ m.code }} · {{ m.count }} ({{ m.pct }}%)"></span>
+      {% endif %}{% endfor %}
+    </div>
+    <div class="mixlegend">
+      {% for m in view.mix %}
+      <div class="mi">
+        <span class="code" style="background:{{ m.pal.bg }};color:{{ m.pal.fg }};border-color:{{ m.pal.bd }}">{{ m.code }}</span>
+        <span class="n">{{ m.count }}</span>
+        <span class="p">{{ m.pct }}%</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">{{ t('dash.no_records') }}</div>
+    {% endif %}
+  </section>
+
+  <section class="card pad">
+    <div class="card-h-row">
+      <h2 class="card-h">{{ t('dash.snapshot') }}</h2>
+      <span class="muted">{{ view.snapshot.date_label }}</span>
+    </div>
+    <div class="facts">
+      <div class="fact"><div class="l">{{ t('stat.present') }}</div><div class="v" style="color:#146c39">{{ view.snapshot.present }}</div></div>
+      <div class="fact"><div class="l">{{ t('stat.absent') }}</div><div class="v" style="color:#a4271b">{{ view.snapshot.absent }}</div></div>
+      <div class="fact"><div class="l">{{ t('stat.pending_review') }}</div><div class="v" style="color:#96500a">{{ view.snapshot.pending }}</div></div>
+      <div class="fact"><div class="l">{{ t('stat.week_off_holiday') }}</div><div class="v" style="color:#5b3ba8">{{ view.snapshot.off }}</div></div>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/daily?period={{ period }}&date={{ view.snapshot.date_iso }}">{{ t('dash.open_daily') }}</a>
+      <a class="btn ghost" href="/monthly?period={{ period }}">{{ t('dash.open_monthly') }}</a>
+    </div>
+  </section>
+</div>
+
+<section class="card pad">
+  <div class="card-h-row">
+    <h2 class="card-h">{{ t('nav.exceptions') }}</h2>
+    <a class="btn" href="/exceptions?period={{ period }}">{{ t('dash.review_all') }}</a>
+  </div>
+  {% if view.exc_kinds %}
+  <div class="chips">
+    {% for k in view.exc_kinds %}
+    <a class="chip" href="/exceptions?period={{ period }}&kind={{ k.kind }}">
+      <span class="code" style="background:{{ k.pal.bg }};color:{{ k.pal.fg }};border-color:{{ k.pal.bd }}">{{ k.kind }}</span>
+      <span class="n">{{ k.count }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  <p class="muted" style="margin:10px 0 0">{{ t('dash.oldest_open', n=view.oldest_open) }}</p>
+  {% else %}
+  <div class="empty">{{ t('exc.none') }}</div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-h-row pad">
+    <h2 class="card-h">{{ t('col.department') }}</h2>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>{{ t('col.department') }}</th>
+        <th style="text-align:right">{{ t('dash.col_employees') }}</th>
+        <th style="text-align:right">{{ t('dash.col_present_days') }}</th>
+        <th style="text-align:right">{{ t('col.total_hours') }}</th>
+        <th style="text-align:right">{{ t('col.open_exceptions') }}</th>
+      </tr></thead>
+      <tbody>
+      {% if not view.departments %}
+        <tr><td colspan="5"><div class="empty">{{ t('dash.no_records') }}</div></td></tr>
+      {% endif %}
+      {% for d in view.departments %}
+        <tr>
+          <td><span class="pill">{{ d.department }}</span></td>
+          <td style="text-align:right;font-weight:600">{{ d.employees }}</td>
+          <td style="text-align:right">{{ d.present_days }}</td>
+          <td style="text-align:right;font-weight:700">{{ d.hours }}</td>
+          <td style="text-align:right;font-weight:{{ 700 if d.open_exceptions else 400 }};color:{{ '#96500a' if d.open_exceptions else '#5f6875' }}">{{ d.open_exceptions }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-h-row pad">
+    <h2 class="card-h">{{ t('nav.runs') }}</h2>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>{{ t('dash.col_generated') }}</th>
+        <th>{{ t('foot.period') }}</th>
+        <th>{{ t('dash.col_type') }}</th>
+        <th>{{ t('col.status') }}</th>
+        <th style="text-align:right">{{ t('dash.col_records') }}</th>
+        <th style="text-align:right">{{ t('dash.col_gross') }}</th>
+        <th>{{ t('dash.col_by') }}</th>
+      </tr></thead>
+      <tbody>
+      {% if not view.runs %}
+        <tr><td colspan="7"><div class="empty">{{ t('dash.no_runs') }}</div></td></tr>
+      {% endif %}
+      {% for r in view.runs %}
+        <tr>
+          <td style="font-weight:600">{{ r.generated_at }}</td>
+          <td>{{ r.period }}</td>
+          <td>{{ r.kind }}</td>
+          <td>
+            {% if r.status == 'complete' %}<span class="tag done">{{ r.status }}</span>
+            {% elif r.status == 'blocked' %}<span class="tag block" title="{{ r.blocked_reason }}">{{ r.status }}</span>
+            {% else %}<span class="tag noblock">{{ r.status }}</span>{% endif %}
+          </td>
+          <td style="text-align:right">{{ r.record_count }}</td>
+          <td style="text-align:right;font-weight:700">{{ r.gross_hours }}</td>
+          <td style="font-size:12px;color:#4a5361">{{ r.generated_by }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% include "partials/legend.html" %}
+{% endblock %}
