@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% set page = "kiosk" %}
+{% block title %}Kiosk · Face Kiosk{% endblock %}
+
+{% block content %}
+<div class="kiosk">
+  <div class="kiosk-cam">
+    <img src="/stream" alt="camera" class="stream">
+    <div class="who" id="who" data-state="idle">
+      <span class="who-name" id="whoName">Step up to the camera</span>
+      <span class="who-sub" id="whoSub">{% if status.liveness %}you'll be asked to turn your head{% endif %}</span>
+    </div>
+  </div>
+
+  <div class="kiosk-actions">
+    <button class="stamp in"  id="btnIn"  disabled>Check&nbsp;In</button>
+    <button class="stamp out" id="btnOut" disabled>Check&nbsp;Out</button>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>kioskPage();</script>
+{% endblock %}

@@ -35,12 +35,14 @@ class Track:
         self.misses = 0
         self.votes: deque[str] = deque(maxlen=T.vote_window)
         # lifecycle: recognizing -> awaiting_liveness -> committed
+        # recognizing -> awaiting_liveness -> (ready | committed)
         self.stage = "recognizing"
         self.identity: tuple[str, str] | None = None   # (uid, name)
         self.best_similarity = 0.0
         self.challenge = None                           # liveness.Challenge | None
         self.committed_uid: str | None = None
         self.greet_until = 0.0                          # monotonic time to show the tick
+        self.greet_text = "OK"
 
     def vote(self, name: str | None) -> None:
         self.votes.append(name or "?")

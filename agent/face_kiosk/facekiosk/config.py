@@ -49,7 +49,8 @@ class Thresholds:
     track_max_misses: int = 15            # drop a track after this many blank frames
 
     # --- Re-punch debounce ------------------------------------------------- #
-    debounce_seconds: int = 120          # same person within this = no new event
+    debounce_seconds: int = 120          # auto-log: same person within this = no new event
+    capture_debounce_seconds: int = 8    # manual: ignore a second Check In/Out tap this soon
 
     # --- Liveness (randomized head turn) --------------------------------- #
     liveness_yaw_delta: float = 0.16     # normalised nose shift that counts as a turn

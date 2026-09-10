@@ -129,20 +129,25 @@ def main() -> int:
     g4.enroll("_st_e2e", "E2E Tester", [emb_a1, emb_a2])
     g4.save()
     real_log, run_mod.EVENT_LOG = run_mod.EVENT_LOG, _CACHE / "events.jsonl"
+    args = SimpleNamespace(
+        camera=0, conf_thres=T.detect_score, match_cosine=T.match_cosine,
+        liveness=False, no_window=True, seconds=0,
+    )
     try:
-        kiosk = Kiosk(
-            SimpleNamespace(
-                camera=0,
-                conf_thres=T.detect_score,
-                match_cosine=T.match_cosine,
-                liveness=False,
-                no_window=True,
-                seconds=0,
-            )
-        )
+        auto = Kiosk(args, auto_log=True)
         for _ in range(T.vote_frames + 4):
-            kiosk.process(imgs["person_a.jpg"].copy())
-        check("full loop emits one event for the enrolled face", kiosk.events == 1, f"events={kiosk.events}")
+            auto.process(imgs["person_a.jpg"].copy())
+        check("auto-log emits one event for the enrolled face", auto.events == 1, f"events={auto.events}")
+
+        manual = Kiosk(args, auto_log=False)
+        for _ in range(T.vote_frames + 4):
+            manual.process(imgs["person_a.jpg"].copy())
+        check("manual mode logs nothing until a capture", manual.events == 0, f"events={manual.events}")
+        cand = manual.current_candidate()
+        check("manual mode surfaces the recognised person as a candidate", cand and cand["uid"] == "_st_e2e", str(cand))
+        rec = manual.capture("in")
+        check("capture('in') logs one event with direction", rec and rec["direction"] == "in" and manual.events == 1, str(rec))
+        check("second capture within debounce is ignored", manual.capture("in") is None)
     finally:
         run_mod.EVENT_LOG = real_log
         restore = Gallery()
@@ -174,9 +179,12 @@ def main() -> int:
 
         app_mod._SETTINGS.camera = 999
         with TestClient(app_mod.create_app()) as client:
-            codes = {p: client.get(p).status_code for p in ("/", "/register", "/api/status", "/api/roster")}
+            codes = {p: client.get(p).status_code
+                     for p in ("/", "/log", "/register", "/api/status", "/api/roster", "/api/candidate")}
             check("web app serves its pages without a camera", all(v == 200 for v in codes.values()), str(codes))
             check("web app reports the camera failure", client.get("/api/status").json()["camera_ok"] is False)
+            check("no candidate when nobody is on camera", client.get("/api/candidate").json()["candidate"] is None)
+            check("stamp with no candidate is refused", client.post("/api/stamp", json={"direction": "in"}).status_code == 409)
     except ImportError:
         print("  [skip] web app checks (fastapi/httpx not installed)")
 

@@ -10,7 +10,8 @@
   <header class="topbar">
     <div class="brand">Face&nbsp;Kiosk <span class="tag">standalone</span></div>
     <nav>
-      <a href="/" class="{% if page == 'dashboard' %}on{% endif %}">Dashboard</a>
+      <a href="/" class="{% if page == 'kiosk' %}on{% endif %}">Kiosk</a>
+      <a href="/log" class="{% if page == 'log' %}on{% endif %}">Log</a>
       <a href="/register" class="{% if page == 'register' %}on{% endif %}">Register</a>
     </nav>
     <div class="status" id="status" data-fps="{{ status.fps }}">

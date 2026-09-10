@@ -33,6 +33,78 @@ function wireForgetButtons() {
   });
 }
 
+// --- kiosk page: recognised readout + Check In / Check Out --------- //
+function kioskPage() {
+  const who = document.getElementById("who");
+  const whoName = document.getElementById("whoName");
+  const whoSub = document.getElementById("whoSub");
+  const btnIn = document.getElementById("btnIn");
+  const btnOut = document.getElementById("btnOut");
+  const toast = document.getElementById("toast");
+  let current = null;      // {uid, name, ...} or null
+  let busy = false;
+
+  function setReadout(cand) {
+    current = cand;
+    const ready = !!cand && !busy;
+    btnIn.disabled = !ready;
+    btnOut.disabled = !ready;
+    if (cand) {
+      who.dataset.state = "ready";
+      whoName.textContent = cand.name;
+      whoSub.textContent = `match ${cand.similarity}`;
+    } else if (!busy) {
+      who.dataset.state = "idle";
+      whoName.textContent = "Step up to the camera";
+      whoSub.textContent = "";
+    }
+  }
+
+  async function poll() {
+    if (busy) return;
+    try {
+      const { candidate } = await (await fetch("/api/candidate")).json();
+      setReadout(candidate);
+    } catch (e) { /* transient */ }
+  }
+
+  async function stamp(direction) {
+    if (!current || busy) return;
+    busy = true;
+    btnIn.disabled = btnOut.disabled = true;
+    try {
+      const r = await fetch("/api/stamp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ direction }),
+      });
+      const body = await r.json();
+      if (!r.ok) { showToast(body.detail || "could not record", "bad"); return; }
+      const rec = body.record;
+      showToast(`${direction === "in" ? "Checked in" : "Checked out"} · ${rec.name} · ${rec.ts.slice(11, 16)}`, "ok");
+      who.dataset.state = "done";
+      whoName.textContent = rec.name;
+      whoSub.textContent = direction === "in" ? "checked in" : "checked out";
+    } catch (e) {
+      showToast("could not record", "bad");
+    } finally {
+      setTimeout(() => { busy = false; poll(); }, 2500);
+    }
+  }
+
+  function showToast(text, kind) {
+    toast.textContent = text;
+    toast.className = "toast " + (kind || "");
+    toast.hidden = false;
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => { toast.hidden = true; }, 3500);
+  }
+
+  btnIn.addEventListener("click", () => stamp("in"));
+  btnOut.addEventListener("click", () => stamp("out"));
+  poll();
+  setInterval(poll, 500);
+}
+
 // --- register page ------------------------------------------------- //
 function registerPage(minShots) {
   const form = document.getElementById("reg");

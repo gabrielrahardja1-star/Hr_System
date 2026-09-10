@@ -1,16 +1,18 @@
-"""The prototype recognition loop.
+"""The recognition pipeline (`Kiosk`) and a self-contained OpenCV-window scanner.
 
     python -m facekiosk.run --camera 1
     python -m facekiosk.run --camera 1 --no-liveness --match-cosine 0.42
     python -m facekiosk.run --camera 1 --no-window --seconds 60      # headless
 
 For each face it tracks across frames, votes on the identity, then (unless
---no-liveness) runs a randomized head-turn challenge before writing one event to
-data/events.jsonl and printing a line. Same person again within the debounce
-window is ignored. Press Q in the window, or Ctrl-C headless, to stop.
+--no-liveness) runs a randomized head-turn challenge. What happens on a confirmed
+recognition depends on the mode:
+  auto-log (default here)  -> write an event immediately (direction "auto")
+  --no-auto-log            -> park the person as a "ready" candidate; something
+                             else (the web app's Check In / Check Out buttons)
+                             calls Kiosk.capture(direction) to log it
 
-This does NOT talk to HQ yet. Each event line is already shaped like a punch;
-Phase 2 maps it to PunchIn and POSTs a batch to /api/v1/punches.
+Events go to data/events.jsonl (+ any on_event sink). This does NOT talk to HQ.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ class Kiosk:
         *,
         on_event: Callable[[dict], None] | None = None,
         gallery: Gallery | None = None,
+        auto_log: bool = True,
     ) -> None:
         self.args = args
         self.engine = FaceEngine(detect_score=args.conf_thres)
@@ -53,22 +56,31 @@ class Kiosk:
         self.tracker = IOUTracker()
         self.debounce: dict[str, float] = {}     # uid -> monotonic time of last event
         self.events = 0
+        self.auto_log = auto_log                 # False = a Check In/Out tap is the only logger
         self._on_event = on_event
+        self._pass = "skipped" if not args.liveness else "pass"
         if not self.gallery.people:
             print("! gallery is empty — enrol someone first (register in the app, "
                   "or python -m facekiosk.enroll)", file=sys.stderr)
 
     # --- event sink ---------------------------------------------------- #
 
-    def _emit(self, track: Track, uid: str, name: str, similarity: float, liveness: str) -> None:
+    def _write_event(
+        self,
+        track: Track,
+        uid: str,
+        name: str,
+        similarity: float,
+        liveness: str,
+        direction: str,
+        debounce_s: float,
+    ) -> dict | None:
+        """Log one attendance event. Returns the record, or None if it fell
+        inside the debounce window for this person."""
         mono = time.monotonic()
         last = self.debounce.get(uid)
-        if last is not None and mono - last < T.debounce_seconds:
-            track.stage = "committed"
-            track.committed_uid = uid
-            track.greet_until = mono + 1.5
-            track.identity = (uid, f"{name} (already in)")
-            return
+        if last is not None and mono - last < debounce_s:
+            return None
 
         self.debounce[uid] = mono
         self.events += 1
@@ -78,6 +90,7 @@ class Kiosk:
             "device_user_id": uid,
             "emp_id": person.emp_id if person else "",
             "name": name,
+            "direction": direction,          # "in" | "out" | "auto"
             "similarity": round(similarity, 4),
             "liveness": liveness,
             "track_id": track.id,
@@ -87,7 +100,7 @@ class Kiosk:
         with EVENT_LOG.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
         print(
-            f"[{record['ts']}]  {name:<24} uid={uid:<8} "
+            f"[{record['ts']}]  {name:<22} {direction:<4} uid={uid:<8} "
             f"sim={similarity:.3f} liveness={liveness}"
         )
         if self._on_event is not None:
@@ -95,12 +108,68 @@ class Kiosk:
                 self._on_event(record)
             except Exception as exc:  # noqa: BLE001 - a sink error must not kill the loop
                 print(f"on_event sink failed: {exc}", file=sys.stderr)
-        track.stage = "committed"
-        track.committed_uid = uid
-        track.identity = (uid, name)
-        track.greet_until = mono + 3.0
+        return record
+
+    # --- manual capture (the Check In / Check Out buttons) ----------- #
+
+    def current_candidate(self) -> dict | None:
+        """The person the app can stamp right now: a live, recognised, liveness-
+        cleared track that isn't inside its post-stamp debounce. Best match wins."""
+        mono = time.monotonic()
+        best: tuple[float, Track] | None = None
+        for tr in self.tracker.tracks:
+            if tr.stage != "ready" or tr.identity is None or tr.misses > 3:
+                continue
+            uid = tr.identity[0]
+            last = self.debounce.get(uid)
+            if last is not None and mono - last < T.capture_debounce_seconds:
+                continue
+            if best is None or tr.best_similarity > best[0]:
+                best = (tr.best_similarity, tr)
+        if best is None:
+            return None
+        uid, name = best[1].identity
+        person = self.gallery.people.get(uid)
+        return {
+            "uid": uid,
+            "name": name,
+            "emp_id": person.emp_id if person else "",
+            "similarity": round(best[1].best_similarity, 3),
+            "track_id": best[1].id,
+        }
+
+    def capture(self, direction: str) -> dict | None:
+        """Stamp the current candidate with a direction. None if nobody is ready."""
+        cand = self.current_candidate()
+        if cand is None:
+            return None
+        track = next((t for t in self.tracker.tracks if t.id == cand["track_id"]), None)
+        if track is None:
+            return None
+        record = self._write_event(
+            track, cand["uid"], cand["name"], track.best_similarity,
+            self._pass, direction, T.capture_debounce_seconds,
+        )
+        if record is not None:
+            track.stage = "committed"
+            track.greet_until = time.monotonic() + 3.0
+            track.greet_text = f"{direction.upper()}  OK"
+        return record
 
     # --- per-track state machine ------------------------------------- #
+
+    def _confirm(self, track: Track, uid: str, name: str) -> None:
+        """Track is recognised (and liveness-cleared). Either auto-log it or park
+        it as a candidate for a Check In / Check Out tap."""
+        if self.auto_log:
+            self._write_event(
+                track, uid, name, track.best_similarity, self._pass, "auto", T.debounce_seconds
+            )
+            track.stage = "committed"
+            track.greet_until = time.monotonic() + 3.0
+            track.greet_text = "OK"
+        else:
+            track.stage = "ready"
 
     def _step_track(self, track: Track, frame) -> None:
         face = track.face
@@ -124,7 +193,7 @@ class Kiosk:
                     track.stage = "awaiting_liveness"
                     track.challenge = Challenge()
                 else:
-                    self._emit(track, leader_uid, name, track.best_similarity, "skipped")
+                    self._confirm(track, leader_uid, name)
 
         elif stage == "awaiting_liveness":
             uid, name = track.identity
@@ -133,18 +202,27 @@ class Kiosk:
             viz.banner(frame, track.challenge.prompt, viz.AMBER)
             viz.progress_bar(frame, track.challenge.progress, viz.AMBER)
             if result == "pass":
-                self._emit(track, uid, name, track.best_similarity, "pass")
+                self._confirm(track, uid, name)
             elif result == "timeout":
                 track.stage = "recognizing"
                 track.votes.clear()
                 track.challenge = None
 
+        elif stage == "ready":
+            uid, name = track.identity
+            mono = time.monotonic()
+            stamped = self.debounce.get(uid)
+            if stamped is not None and mono - stamped < T.capture_debounce_seconds:
+                viz.draw_box(frame, face.box, viz.GREY, f"{name}  logged")
+            else:
+                viz.draw_box(frame, face.box, viz.GREEN, f"{name}  — tap Check In / Out")
+
         elif stage == "committed":
             uid, name = track.identity
             done = time.monotonic() > track.greet_until
             color = viz.GREY if done else viz.GREEN
-            tick = "" if done else "  OK"
-            viz.draw_box(frame, face.box, color, f"{name}{tick}")
+            tail = "" if done else f"  {getattr(track, 'greet_text', 'OK')}"
+            viz.draw_box(frame, face.box, color, f"{name}{tail}")
 
     # --- main loop -------------------------------------------------- #
 
@@ -220,8 +298,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-liveness", dest="liveness", action="store_false", help="skip the head-turn challenge")
     ap.add_argument("--no-window", action="store_true", help="headless — no preview window")
     ap.add_argument("--seconds", type=float, default=0.0, help="auto-stop after N seconds (0 = run until stopped)")
+    ap.add_argument(
+        "--no-auto-log",
+        dest="auto_log",
+        action="store_false",
+        help="don't log on recognition; wait for a manual capture (the web app's mode)",
+    )
     args = ap.parse_args(argv)
-    return Kiosk(args).run()
+    return Kiosk(args, auto_log=args.auto_log).run()
 
 
 if __name__ == "__main__":

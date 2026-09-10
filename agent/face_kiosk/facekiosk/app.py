@@ -44,7 +44,7 @@ MIN_SHOTS = 4
 MAX_SHOTS = 12
 
 # Set by main() before the server starts.
-_SETTINGS = SimpleNamespace(camera=0, match_cosine=T.match_cosine, liveness=True)
+_SETTINGS = SimpleNamespace(camera=0, match_cosine=T.match_cosine, liveness=True, auto_log=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -53,7 +53,7 @@ _SETTINGS = SimpleNamespace(camera=0, match_cosine=T.match_cosine, liveness=True
 
 
 class CameraWorker(threading.Thread):
-    def __init__(self, camera: int, match_cosine: float, liveness: bool) -> None:
+    def __init__(self, camera: int, match_cosine: float, liveness: bool, auto_log: bool = False) -> None:
         super().__init__(name="camera-worker", daemon=True)
         self.camera = camera
         self.gallery = Gallery()
@@ -78,7 +78,7 @@ class CameraWorker(threading.Thread):
             no_window=True,
             seconds=0,
         )
-        self.kiosk = Kiosk(args, on_event=self.store.record, gallery=self.gallery)
+        self.kiosk = Kiosk(args, on_event=self.store.record, gallery=self.gallery, auto_log=auto_log)
 
     # --- thread body -------------------------------------------------- #
 
@@ -177,6 +177,21 @@ class CameraWorker(threading.Thread):
             raise HTTPException(404, f"{uid} not enrolled")
         return {"uid": uid, "sightings_deleted": rows}
 
+    # --- manual capture (Check In / Check Out) --------------------- #
+
+    def candidate(self) -> dict | None:
+        with self.engine_lock:
+            return self.kiosk.current_candidate()
+
+    def stamp(self, direction: str) -> dict:
+        if direction not in ("in", "out"):
+            raise HTTPException(422, "direction must be 'in' or 'out'")
+        with self.engine_lock, self.gallery_lock:
+            record = self.kiosk.capture(direction)
+        if record is None:
+            raise HTTPException(409, "no one is recognised right now — step up to the camera")
+        return record
+
     def status(self) -> dict:
         return {
             "camera_index": self.camera,
@@ -185,6 +200,7 @@ class CameraWorker(threading.Thread):
             "fps": round(self.fps, 1),
             "enrolled": len(self.gallery),
             "liveness": self.kiosk.args.liveness,
+            "auto_log": self.kiosk.auto_log,
             "match_cosine": self.kiosk.args.match_cosine,
         }
 
@@ -209,7 +225,9 @@ templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
 
 def create_app() -> FastAPI:
-    worker = CameraWorker(_SETTINGS.camera, _SETTINGS.match_cosine, _SETTINGS.liveness)
+    worker = CameraWorker(
+        _SETTINGS.camera, _SETTINGS.match_cosine, _SETTINGS.liveness, _SETTINGS.auto_log
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -227,11 +245,15 @@ def create_app() -> FastAPI:
         return date or dt.date.today().isoformat()
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard(request: Request, date: str | None = None):
+    def kiosk_page(request: Request):
+        return templates.TemplateResponse(request, "kiosk.html", {"status": worker.status()})
+
+    @app.get("/log", response_class=HTMLResponse)
+    def log_page(request: Request, date: str | None = None):
         day = _today(date)
         return templates.TemplateResponse(
             request,
-            "dashboard.html",
+            "log.html",
             {
                 "day": day,
                 "is_today": day == dt.date.today().isoformat(),
@@ -274,6 +296,15 @@ def create_app() -> FastAPI:
     def api_people():
         return {"people": [p.as_dict() for p in worker.gallery.people.values()]}
 
+    @app.get("/api/candidate")
+    def api_candidate():
+        return {"candidate": worker.candidate()}
+
+    @app.post("/api/stamp")
+    def api_stamp(body: dict = Body(...)):
+        record = worker.stamp((body.get("direction") or "").strip().lower())
+        return {"ok": True, "record": record}
+
     @app.post("/api/capture")
     def api_capture(body: dict = Body(default={})):
         token, shots = worker.capture(body.get("token"))
@@ -306,11 +337,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--match-cosine", type=float, default=T.match_cosine)
     ap.add_argument("--no-liveness", dest="liveness", action="store_false")
+    ap.add_argument(
+        "--auto-log",
+        action="store_true",
+        help="also log automatically on recognition (default: only a Check In/Out tap logs)",
+    )
     args = ap.parse_args(argv)
 
     _SETTINGS.camera = args.camera
     _SETTINGS.match_cosine = args.match_cosine
     _SETTINGS.liveness = args.liveness
+    _SETTINGS.auto_log = args.auto_log
 
     print(f"face kiosk on http://{args.host}:{args.port}  (camera {args.camera})")
     uvicorn.run(create_app(), host=args.host, port=args.port, log_level="warning")

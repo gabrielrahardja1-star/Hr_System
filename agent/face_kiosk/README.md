@@ -11,9 +11,13 @@ webcam ─▶ YuNet detect ─▶ IOU track ─▶ SFace embed ─▶ gallery ma
                                      │
                     randomized head-turn liveness check
                                      │
-                     ┌───────────────┴───────────────┐
-              data/sightings.db                data/events.jsonl
-           (the web app's log)              (debug trail, always written)
+                       person is now a "candidate"
+                                     │
+              ┌──────────────────────┴──────────────────────┐
+        Check In / Check Out tap                     --auto-log (opt-in)
+              └──────────────────────┬──────────────────────┘
+                                     │
+                     data/sightings.db  +  data/events.jsonl
                                      │
                      (later)  POST /api/v1/punches   ← same payload as a real device
 ```
@@ -27,14 +31,19 @@ separate, small step once recognition accuracy looks good.
 .venv/bin/python -m facekiosk.app --camera 1      # then open http://localhost:8770
 ```
 
-- **/** — live camera + today's roll-up (each person: first seen, last seen,
-  count), a day picker, and the enrolled list (with a *Forget* button)
+- **/** (Kiosk) — live camera, a readout of who's recognised right now, and big
+  **Check In / Check Out** buttons. Nothing is logged until someone taps one;
+  the tap stamps the current time with a direction. `--auto-log` also logs
+  automatically on recognition (direction `auto`).
+- **/log** — attendance roll-up per person (check-in / check-out / tap count), a
+  day picker, and the enrolled list with a *Forget* button.
 - **/register** — capture a few webcam shots, type a name (+ optional ID), Save.
   The running scanner picks up the new face immediately.
 
-One background thread owns the camera and runs recognition; every confirmed
-sighting lands in `data/sightings.db` (SQLite, this app's own store — nothing to
-do with the HQ database).
+One background thread owns the camera and runs recognition. A person becomes a
+tappable *candidate* once the vote settles and the head-turn passes; the button
+writes the event to `data/sightings.db` (SQLite, this app's own store — nothing
+to do with the HQ database) and `data/events.jsonl`.
 
 Nothing here trains a model. **YuNet** (detector) and **SFace** (128-d embedder)
 are small pretrained ONNX nets from OpenCV's zoo, used as primitives. Enrolling
@@ -84,14 +93,15 @@ cd agent/face_kiosk
 .venv/bin/python -m facekiosk.enroll --list
 .venv/bin/python -m facekiosk.enroll --from-images ./photos/ --uid 1001 --name "Budi Santoso"
 
-# the OpenCV-window scanner (writes events.jsonl only, no web UI / sightings.db)
+# the OpenCV-window scanner (writes events.jsonl only, no web UI / sightings.db).
+# auto-logs on recognition by default; --no-auto-log parks candidates instead.
 .venv/bin/python -m facekiosk.run --camera 1
 .venv/bin/python -m facekiosk.run --camera 1 --no-window --seconds 120
 ```
 
 In the scanner view: a face gets an amber box + name guess + a vote bar; once the
 vote settles it asks for a head turn (`Turn your head left ←`); on success the box
-goes green and the sighting is logged.
+goes green and (in auto-log mode) the sighting is logged.
 
 > When mapping to HR later, enrol each person with `--uid` = their
 > `Employee.device_user_id` so a face punch and a fingerprint punch coincide.
@@ -99,16 +109,16 @@ goes green and the sighting is logged.
 
 ### Event record
 
-Written to both `data/sightings.db` and `data/events.jsonl` per confirmed hit:
+Written to both `data/sightings.db` and `data/events.jsonl` per logged event:
 
 ```json
 {"ts":"2026-09-10T08:42:11+07:00","device_user_id":"1001","emp_id":"1042",
- "name":"Budi Santoso","similarity":0.71,"liveness":"pass","track_id":4,
- "source":"face-kiosk-proto"}
+ "name":"Budi Santoso","direction":"in","similarity":0.71,"liveness":"pass",
+ "track_id":4,"source":"face-kiosk-proto"}
 ```
 
-A re-appearance after `debounce_seconds` is a new row, so first-seen / last-seen
-per person per day fall out of a `GROUP BY`.
+`direction` is `in` / `out` from the buttons, or `auto` from `--auto-log`. The
+`/log` roll-up takes the first `in` as check-in and the last `out` as check-out.
 
 ## Tuning (`facekiosk/config.py`)
 
@@ -118,7 +128,8 @@ per person per day fall out of a `GROUP BY`.
 | `detect_score` | 0.85 | ignore blurry/side faces |
 | `min_face_px` | 90 | require people to step closer |
 | `vote_frames` | 12 | demand more agreement before a punch (slower, safer) |
-| `debounce_seconds` | 120 | widen the "already checked in" window |
+| `debounce_seconds` | 120 | auto-log: widen the "already logged" window |
+| `capture_debounce_seconds` | 8 | manual: ignore a repeated Check In/Out tap this soon |
 | `liveness_yaw_delta` | 0.16 | need a bigger head turn |
 | `liveness_invert` | false | flip if "turn left" registers as a right turn on your camera |
 
@@ -151,8 +162,8 @@ hi-vis, hats and motion blur all move the numbers.
 | `facekiosk/gallery.py` | encrypted enrollment store + matching |
 | `facekiosk/liveness.py` | randomized head-turn challenge |
 | `facekiosk/store.py` | SQLite sightings log + daily roll-up |
-| `facekiosk/run.py` | the `Kiosk` pipeline + the OpenCV-window scanner |
+| `facekiosk/run.py` | the `Kiosk` pipeline (+ auto/manual modes) + OpenCV-window scanner |
 | `facekiosk/app.py` | the web app (camera thread + FastAPI) |
-| `facekiosk/web/` | templates + static assets for the app |
+| `facekiosk/web/` | `kiosk` / `log` / `register` templates + static assets |
 | `facekiosk/enroll.py` | enrol / list / remove CLI |
-| `facekiosk/selftest.py` | camera-free pipeline check (15 checks) |
+| `facekiosk/selftest.py` | camera-free pipeline check (21 checks) |
