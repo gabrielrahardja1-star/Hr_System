@@ -149,6 +149,37 @@ def main() -> int:
         restore.people = keep
         restore.save()
 
+    # --- sightings store roll-up ----------------------------------- #
+    from .store import SightingStore
+
+    st = SightingStore(_CACHE / "selftest_sightings.db")
+    try:
+        for ts, sim in [("2026-01-02T08:03:00+07:00", 0.7), ("2026-01-02T17:31:00+07:00", 0.8)]:
+            st.record({"ts": ts, "device_user_id": "K1", "emp_id": "42", "name": "Tester", "similarity": sim, "liveness": "pass"})
+        roll = st.roster_for_date("2026-01-02")
+        check(
+            "store rolls sightings into first/last per person",
+            len(roll) == 1 and roll[0]["first_seen"][11:16] == "08:03" and roll[0]["last_seen"][11:16] == "17:31" and roll[0]["sightings"] == 2,
+            str(roll),
+        )
+    finally:
+        st.close()
+        (_CACHE / "selftest_sightings.db").unlink(missing_ok=True)
+
+    # --- web app routes (camera intentionally absent) --------------- #
+    try:
+        from fastapi.testclient import TestClient
+
+        from . import app as app_mod
+
+        app_mod._SETTINGS.camera = 999
+        with TestClient(app_mod.create_app()) as client:
+            codes = {p: client.get(p).status_code for p in ("/", "/register", "/api/status", "/api/roster")}
+            check("web app serves its pages without a camera", all(v == 200 for v in codes.values()), str(codes))
+            check("web app reports the camera failure", client.get("/api/status").json()["camera_ok"] is False)
+    except ImportError:
+        print("  [skip] web app checks (fastapi/httpx not installed)")
+
     print(f"\n{_passed} checks passed.")
     return 0
 

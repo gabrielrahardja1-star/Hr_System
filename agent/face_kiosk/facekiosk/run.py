@@ -22,6 +22,7 @@ import signal
 import sys
 import time
 from collections import deque
+from collections.abc import Callable
 
 import cv2
 
@@ -39,15 +40,23 @@ def _now_local() -> dt.datetime:
 
 
 class Kiosk:
-    def __init__(self, args: argparse.Namespace) -> None:
+    def __init__(
+        self,
+        args: argparse.Namespace,
+        *,
+        on_event: Callable[[dict], None] | None = None,
+        gallery: Gallery | None = None,
+    ) -> None:
         self.args = args
         self.engine = FaceEngine(detect_score=args.conf_thres)
-        self.gallery = Gallery()
+        self.gallery = gallery if gallery is not None else Gallery()
         self.tracker = IOUTracker()
         self.debounce: dict[str, float] = {}     # uid -> monotonic time of last event
         self.events = 0
+        self._on_event = on_event
         if not self.gallery.people:
-            print("! gallery is empty — enrol someone first (python -m facekiosk.enroll)", file=sys.stderr)
+            print("! gallery is empty — enrol someone first (register in the app, "
+                  "or python -m facekiosk.enroll)", file=sys.stderr)
 
     # --- event sink ---------------------------------------------------- #
 
@@ -63,9 +72,11 @@ class Kiosk:
 
         self.debounce[uid] = mono
         self.events += 1
+        person = self.gallery.people.get(uid)
         record = {
             "ts": _now_local().isoformat(timespec="seconds"),
             "device_user_id": uid,
+            "emp_id": person.emp_id if person else "",
             "name": name,
             "similarity": round(similarity, 4),
             "liveness": liveness,
@@ -79,6 +90,11 @@ class Kiosk:
             f"[{record['ts']}]  {name:<24} uid={uid:<8} "
             f"sim={similarity:.3f} liveness={liveness}"
         )
+        if self._on_event is not None:
+            try:
+                self._on_event(record)
+            except Exception as exc:  # noqa: BLE001 - a sink error must not kill the loop
+                print(f"on_event sink failed: {exc}", file=sys.stderr)
         track.stage = "committed"
         track.committed_uid = uid
         track.identity = (uid, name)

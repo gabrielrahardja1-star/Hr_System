@@ -10,5 +10,10 @@ opencv-python>=5.0        # bundles FaceDetectorYN (YuNet) + FaceRecognizerSF (S
 numpy>=2.0
 cryptography>=42          # Fernet — encrypts the local face gallery at rest
 
-# Phase 2 (API wiring) will add:
+# Standalone web app (facekiosk.app)
+fastapi>=0.115
+uvicorn>=0.30
+jinja2>=3.1
+
+# Phase 2 (HQ wiring) will add:
 # httpx>=0.27             # POST batches to /api/v1/punches, same as the pyzk agent

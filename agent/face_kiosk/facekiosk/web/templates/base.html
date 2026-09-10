@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Face Kiosk{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Face&nbsp;Kiosk <span class="tag">standalone</span></div>
+    <nav>
+      <a href="/" class="{% if page == 'dashboard' %}on{% endif %}">Dashboard</a>
+      <a href="/register" class="{% if page == 'register' %}on{% endif %}">Register</a>
+    </nav>
+    <div class="status" id="status" data-fps="{{ status.fps }}">
+      {% if status.camera_ok %}
+        <span class="dot ok"></span> cam {{ status.camera_index }} · <span id="fps">{{ status.fps }}</span> fps
+      {% elif status.error %}
+        <span class="dot bad"></span> {{ status.error }}
+      {% else %}
+        <span class="dot warn"></span> starting camera…
+      {% endif %}
+      · {{ status.enrolled }} enrolled
+    </div>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <script src="/static/app.js"></script>
+  {% block script %}{% endblock %}
+</body>
+</html>

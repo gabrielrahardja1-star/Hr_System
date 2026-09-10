@@ -1,8 +1,8 @@
 # Face-recognition attendance kiosk — prototype
 
-A punch source that identifies an **enrolled employee from a webcam** and logs a
-timestamped recognition event. Same role in the system as the planned pyzk agent
-and `tools/mock_punch_source.py`.
+Identifies an **enrolled person from a webcam** and records the time they were
+seen. Eventually a punch source alongside the planned pyzk agent; for now a
+standalone tool for judging recognition accuracy.
 
 ```
 webcam ─▶ YuNet detect ─▶ IOU track ─▶ SFace embed ─▶ gallery match
@@ -11,14 +11,30 @@ webcam ─▶ YuNet detect ─▶ IOU track ─▶ SFace embed ─▶ gallery ma
                                      │
                     randomized head-turn liveness check
                                      │
-                            data/events.jsonl        ← this prototype stops here
+                     ┌───────────────┴───────────────┐
+              data/sightings.db                data/events.jsonl
+           (the web app's log)              (debug trail, always written)
                                      │
-                     (Phase 2)  POST /api/v1/punches  ← same payload as a real device
+                     (later)  POST /api/v1/punches   ← same payload as a real device
 ```
 
-**This prototype does not talk to HQ.** It writes `data/events.jsonl`, one JSON
-object per recognition, already shaped like a punch. Wiring it to the ingest API
-is a separate, small step once recognition accuracy looks good.
+**This prototype does not talk to HQ.** Wiring the events to the ingest API is a
+separate, small step once recognition accuracy looks good.
+
+## The app
+
+```bash
+.venv/bin/python -m facekiosk.app --camera 1      # then open http://localhost:8770
+```
+
+- **/** — live camera + today's roll-up (each person: first seen, last seen,
+  count), a day picker, and the enrolled list (with a *Forget* button)
+- **/register** — capture a few webcam shots, type a name (+ optional ID), Save.
+  The running scanner picks up the new face immediately.
+
+One background thread owns the camera and runs recognition; every confirmed
+sighting lands in `data/sightings.db` (SQLite, this app's own store — nothing to
+do with the HQ database).
 
 Nothing here trains a model. **YuNet** (detector) and **SFace** (128-d embedder)
 are small pretrained ONNX nets from OpenCV's zoo, used as primitives. Enrolling
@@ -52,30 +68,47 @@ that app, then fully quit and reopen it.
 ```bash
 cd agent/face_kiosk
 
-# 1. which camera is the Logitech?
+# which camera is the Logitech?
 .venv/bin/python -m facekiosk.camera
 
-# 2. enrol someone (uid = their Employee.device_user_id in HR). Get consent.
+# the web app — register + scan + log, all in the browser
+.venv/bin/python -m facekiosk.app --camera 1
+.venv/bin/python -m facekiosk.app --camera 1 --no-liveness --match-cosine 0.42
+```
+
+### CLI, without the web app
+
+```bash
+# enrol from the terminal (uid: give an ID or leave it to auto-assign Knnnn)
 .venv/bin/python -m facekiosk.enroll --uid 1001 --name "Budi Santoso" --camera 1 --auto
 .venv/bin/python -m facekiosk.enroll --list
-.venv/bin/python -m facekiosk.enroll --uid 1001 --name "Budi Santoso" --from-images ./photos/
+.venv/bin/python -m facekiosk.enroll --from-images ./photos/ --uid 1001 --name "Budi Santoso"
 
-# 3. run the kiosk
+# the OpenCV-window scanner (writes events.jsonl only, no web UI / sightings.db)
 .venv/bin/python -m facekiosk.run --camera 1
-.venv/bin/python -m facekiosk.run --camera 1 --no-liveness --match-cosine 0.42
 .venv/bin/python -m facekiosk.run --camera 1 --no-window --seconds 120
 ```
 
-In the window: a face gets an amber box + name guess + a vote bar; once the vote
-settles it asks for a head turn (`Turn your head left ←`); on success the box
-goes green and a line is logged. Press **Q** to quit.
+In the scanner view: a face gets an amber box + name guess + a vote bar; once the
+vote settles it asks for a head turn (`Turn your head left ←`); on success the box
+goes green and the sighting is logged.
 
-### Event line
+> When mapping to HR later, enrol each person with `--uid` = their
+> `Employee.device_user_id` so a face punch and a fingerprint punch coincide.
+> Always get consent before enrolling.
+
+### Event record
+
+Written to both `data/sightings.db` and `data/events.jsonl` per confirmed hit:
 
 ```json
-{"ts":"2026-09-10T08:42:11+07:00","device_user_id":"1001","name":"Budi Santoso",
- "similarity":0.71,"liveness":"pass","track_id":4,"source":"face-kiosk-proto"}
+{"ts":"2026-09-10T08:42:11+07:00","device_user_id":"1001","emp_id":"1042",
+ "name":"Budi Santoso","similarity":0.71,"liveness":"pass","track_id":4,
+ "source":"face-kiosk-proto"}
 ```
+
+A re-appearance after `debounce_seconds` is a new row, so first-seen / last-seen
+per person per day fall out of a `GROUP BY`.
 
 ## Tuning (`facekiosk/config.py`)
 
@@ -101,8 +134,9 @@ hi-vis, hats and motion blur all move the numbers.
   27/2022. The gallery (`data/faces.gallery`) is Fernet-encrypted at rest with a
   local `data/faces.key` (chmod 600); nothing leaves the machine. Enrol only
   with consent; keep vectors, not photos.
-- **One camera, one entrance.** Multi-kiosk enrollment sync would move the
-  gallery to HQ (designed for, not built).
+- **One camera, one entrance.** The web app binds to `127.0.0.1` and holds the
+  camera exclusively. Multi-kiosk enrollment sync would move the gallery to HQ
+  (designed for, not built).
 - Continuity Camera (your iPhone) shows up as a camera index — pick the C615.
 
 ## Files
@@ -116,6 +150,9 @@ hi-vis, hats and motion blur all move the numbers.
 | `facekiosk/tracker.py` | IOU tracker, per-face vote state |
 | `facekiosk/gallery.py` | encrypted enrollment store + matching |
 | `facekiosk/liveness.py` | randomized head-turn challenge |
+| `facekiosk/store.py` | SQLite sightings log + daily roll-up |
+| `facekiosk/run.py` | the `Kiosk` pipeline + the OpenCV-window scanner |
+| `facekiosk/app.py` | the web app (camera thread + FastAPI) |
+| `facekiosk/web/` | templates + static assets for the app |
 | `facekiosk/enroll.py` | enrol / list / remove CLI |
-| `facekiosk/run.py` | the kiosk loop |
-| `facekiosk/selftest.py` | camera-free pipeline check |
+| `facekiosk/selftest.py` | camera-free pipeline check (15 checks) |

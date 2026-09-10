@@ -38,11 +38,19 @@ def _load_key() -> bytes:
 
 
 class Person:
-    __slots__ = ("uid", "name", "enrolled_at", "embeddings")
+    __slots__ = ("uid", "name", "emp_id", "enrolled_at", "embeddings")
 
-    def __init__(self, uid: str, name: str, enrolled_at: str, embeddings: np.ndarray) -> None:
+    def __init__(
+        self,
+        uid: str,
+        name: str,
+        enrolled_at: str,
+        embeddings: np.ndarray,
+        emp_id: str = "",
+    ) -> None:
         self.uid = uid
         self.name = name
+        self.emp_id = emp_id                   # optional free-text staff/badge number
         self.enrolled_at = enrolled_at
         self.embeddings = embeddings          # (N, 128) float32
 
@@ -50,13 +58,25 @@ class Person:
     def shots(self) -> int:
         return int(self.embeddings.shape[0])
 
+    def as_dict(self) -> dict:
+        return {
+            "uid": self.uid,
+            "name": self.name,
+            "emp_id": self.emp_id,
+            "enrolled_at": self.enrolled_at,
+            "shots": self.shots,
+        }
+
 
 class Match:
-    __slots__ = ("uid", "name", "similarity")
+    __slots__ = ("uid", "name", "emp_id", "similarity")
 
-    def __init__(self, uid: str | None, name: str | None, similarity: float) -> None:
+    def __init__(
+        self, uid: str | None, name: str | None, similarity: float, emp_id: str = ""
+    ) -> None:
         self.uid = uid
         self.name = name
+        self.emp_id = emp_id
         self.similarity = similarity
 
     @property
@@ -82,6 +102,7 @@ class Gallery:
                 self.people[m["uid"]] = Person(
                     uid=m["uid"],
                     name=m["name"],
+                    emp_id=m.get("emp_id", ""),
                     enrolled_at=m["enrolled_at"],
                     embeddings=blob[f"emb_{i}"],
                 )
@@ -93,7 +114,12 @@ class Gallery:
         for i, person in enumerate(self.people.values()):
             arrays[f"emb_{i}"] = person.embeddings
             meta.append(
-                {"uid": person.uid, "name": person.name, "enrolled_at": person.enrolled_at}
+                {
+                    "uid": person.uid,
+                    "name": person.name,
+                    "emp_id": person.emp_id,
+                    "enrolled_at": person.enrolled_at,
+                }
             )
         arrays["_meta"] = np.frombuffer(
             json.dumps(meta).encode("utf-8"), dtype=np.uint8
@@ -105,11 +131,21 @@ class Gallery:
 
     # --- mutation ------------------------------------------------------- #
 
-    def enroll(self, uid: str, name: str, embeddings: list[np.ndarray], *, replace: bool = False) -> Person:
+    def enroll(
+        self,
+        uid: str,
+        name: str,
+        embeddings: list[np.ndarray],
+        *,
+        emp_id: str = "",
+        replace: bool = False,
+    ) -> Person:
         new = np.vstack(embeddings).astype(np.float32)
         if not replace and uid in self.people:
-            new = np.vstack([self.people[uid].embeddings, new])
-        person = Person(uid=uid, name=name, enrolled_at=_now_iso(), embeddings=new)
+            existing = self.people[uid]
+            new = np.vstack([existing.embeddings, new])
+            emp_id = emp_id or existing.emp_id
+        person = Person(uid=uid, name=name, enrolled_at=_now_iso(), embeddings=new, emp_id=emp_id)
         self.people[uid] = person
         return person
 
@@ -123,7 +159,7 @@ class Gallery:
         for person in self.people.values():
             sim = float(FaceEngine.cosine_batch(person.embeddings, embedding).max())
             if sim > best.similarity:
-                best = Match(person.uid, person.name, sim)
+                best = Match(person.uid, person.name, sim, person.emp_id)
         if best.similarity >= threshold:
             return best
         return Match(None, None, best.similarity)

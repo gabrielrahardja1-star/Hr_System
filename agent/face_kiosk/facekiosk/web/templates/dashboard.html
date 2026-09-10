@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% set page = "dashboard" %}
+{% block title %}Dashboard · Face Kiosk{% endblock %}
+
+{% block content %}
+<div class="grid">
+  <section class="camera-card">
+    <img src="/stream" alt="camera" class="stream">
+    <p class="hint">Amber box = recognising · green = checked in{% if status.liveness %} · a head-turn is asked before it counts{% endif %}</p>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Seen on camera</h2>
+      <form method="get" action="/">
+        <select name="date" onchange="this.form.submit()">
+          <option value="{{ '' }}" {% if is_today %}selected{% endif %}>Today ({{ day }})</option>
+          {% for d in days %}
+            {% if d != day or not is_today %}<option value="{{ d }}" {% if d == day %}selected{% endif %}>{{ d }}</option>{% endif %}
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+    <table class="log" id="roster">
+      <thead><tr><th>Name</th><th>ID</th><th>First seen</th><th>Last seen</th><th>#</th></tr></thead>
+      <tbody>
+        {% for r in roster %}
+        <tr>
+          <td>{{ r.name }}</td>
+          <td class="mut">{{ r.emp_id or r.uid }}</td>
+          <td>{{ r.first_seen[11:19] }}</td>
+          <td>{{ r.last_seen[11:19] }}</td>
+          <td class="mut">{{ r.sightings }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">No sightings {{ 'yet today' if is_today else 'on this day' }}.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if is_today %}<p class="hint">Updates automatically.</p>{% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Enrolled ({{ people|length }})</h2><a class="btn sm" href="/register">+ Register</a></div>
+    <table class="log">
+      <tbody>
+        {% for p in people %}
+        <tr>
+          <td>{{ p.name }}</td>
+          <td class="mut">{{ p.emp_id or p.uid }}</td>
+          <td class="mut">{{ p.shots }} shots</td>
+          <td><button class="btn sm danger" data-forget="{{ p.uid }}" data-name="{{ p.name }}">Forget</button></td>
+        </tr>
+        {% else %}
+        <tr><td class="empty">Nobody enrolled. <a href="/register">Register someone</a>.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+  if ({{ 'true' if is_today else 'false' }}) startRosterRefresh("{{ day }}");
+  wireForgetButtons();
+</script>
+{% endblock %}

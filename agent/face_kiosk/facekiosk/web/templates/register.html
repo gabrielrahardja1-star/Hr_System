@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% set page = "register" %}
+{% block title %}Register · Face Kiosk{% endblock %}
+
+{% block content %}
+<div class="grid">
+  <section class="camera-card">
+    <img src="/stream" alt="camera" class="stream">
+    <p class="hint">Face the camera straight on, ~0.5&ndash;1&nbsp;m away, good light, one person in frame. Take shots at slightly different angles.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Register a person</h2>
+    <form id="reg" autocomplete="off">
+      <label>Name <span class="req">*</span>
+        <input name="name" required maxlength="80" placeholder="Budi Santoso">
+      </label>
+      <label>ID <span class="mut">(optional — staff/badge number)</span>
+        <input name="emp_id" maxlength="32" placeholder="e.g. 1042">
+      </label>
+
+      <div class="shots">
+        <button type="button" class="btn" id="capture">Capture shot</button>
+        <span id="shotcount" class="shotcount">0</span> / min {{ min_shots }}
+      </div>
+      <div class="dots" id="dots"></div>
+
+      <div class="actions">
+        <button type="submit" class="btn primary" id="save" disabled>Save</button>
+        <button type="button" class="btn" id="cancel">Reset</button>
+      </div>
+      <p id="msg" class="msg"></p>
+    </form>
+  </section>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>registerPage({{ min_shots }});</script>
+{% endblock %}
