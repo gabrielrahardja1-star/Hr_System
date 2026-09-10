@@ -40,6 +40,7 @@ class Track:
         self.identity: tuple[str, str] | None = None   # (uid, name)
         self.best_similarity = 0.0
         self.challenge = None                           # liveness.Challenge | None
+        self.liveness_tries = 0
         self.committed_uid: str | None = None
         self.greet_until = 0.0                          # monotonic time to show the tick
         self.greet_text = "OK"

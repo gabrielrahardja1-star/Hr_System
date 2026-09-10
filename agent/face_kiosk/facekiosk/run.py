@@ -138,6 +138,30 @@ class Kiosk:
             "track_id": best[1].id,
         }
 
+    def frontmost(self) -> dict | None:
+        """What the biggest face on camera is doing right now — for the kiosk
+        readout (recognising / turn your head / ready / just logged)."""
+        tracks = [t for t in self.tracker.tracks if t.misses == 0]
+        if not tracks:
+            return None
+        tr = max(tracks, key=lambda t: t.face.size)
+        name = tr.identity[1] if tr.identity else None
+        if tr.stage == "recognizing":
+            return {"stage": "recognizing", "name": name, "prompt": "Hold still…", "progress": 0.0}
+        if tr.stage == "awaiting_liveness":
+            ch = tr.challenge
+            return {
+                "stage": "liveness",
+                "name": name,
+                "prompt": "Turn your head, then look back",
+                "progress": round(ch.progress, 2) if ch else 0.0,
+            }
+        if tr.stage == "ready":
+            return {"stage": "ready", "name": name, "prompt": "Tap Check In or Check Out", "progress": 1.0}
+        if tr.stage == "committed":
+            return {"stage": "done", "name": name, "prompt": getattr(tr, "greet_text", "Done"), "progress": 1.0}
+        return None
+
     def capture(self, direction: str) -> dict | None:
         """Stamp the current candidate with a direction. None if nobody is ready."""
         cand = self.current_candidate()
@@ -198,15 +222,22 @@ class Kiosk:
         elif stage == "awaiting_liveness":
             uid, name = track.identity
             result = track.challenge.update(face)
-            viz.draw_box(frame, face.box, viz.AMBER, name)
-            viz.banner(frame, track.challenge.prompt, viz.AMBER)
+            viz.draw_box(frame, face.box, viz.AMBER, f"{name} — turn your head")
             viz.progress_bar(frame, track.challenge.progress, viz.AMBER)
+            if result is not None:
+                print(f"liveness {result} for {name}: peak={track.challenge.peak:.3f} "
+                      f"(need {T.liveness_yaw_delta})", file=sys.stderr)
             if result == "pass":
                 self._confirm(track, uid, name)
             elif result == "timeout":
-                track.stage = "recognizing"
-                track.votes.clear()
-                track.challenge = None
+                track.liveness_tries += 1
+                if track.liveness_tries >= T.liveness_retries:
+                    track.stage = "recognizing"
+                    track.votes.clear()
+                    track.challenge = None
+                    track.liveness_tries = 0
+                else:
+                    track.challenge = Challenge()   # re-arm, keep the identity
 
         elif stage == "ready":
             uid, name = track.identity

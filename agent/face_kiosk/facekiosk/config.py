@@ -52,11 +52,11 @@ class Thresholds:
     debounce_seconds: int = 120          # auto-log: same person within this = no new event
     capture_debounce_seconds: int = 8    # manual: ignore a second Check In/Out tap this soon
 
-    # --- Liveness (randomized head turn) --------------------------------- #
-    liveness_yaw_delta: float = 0.16     # normalised nose shift that counts as a turn
-    liveness_return_frac: float = 0.45   # must come back within this fraction of it
-    liveness_timeout_s: float = 6.0
-    liveness_invert: bool = False        # flip if "turn left" reads as right on-site
+    # --- Liveness (head turn, direction-agnostic) ------------------------ #
+    liveness_yaw_delta: float = 0.10     # nose-vs-eyeline shift (÷ face width) that counts as a turn
+    liveness_return_frac: float = 0.4    # must reverse at least this fraction of the turn
+    liveness_timeout_s: float = 8.0
+    liveness_retries: int = 3            # re-arm the challenge this many times before giving up
 
 
 T = Thresholds()

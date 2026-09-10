@@ -12,6 +12,7 @@ Exits non-zero on the first failure.
 from __future__ import annotations
 
 import sys
+import time
 import urllib.request
 
 import numpy as np
@@ -102,21 +103,29 @@ def main() -> int:
         ids.add(pairs[0][0].id)
     check("one moving face stays one track", len(ids) == 1, f"track ids seen: {ids}")
 
-    # --- liveness ------------------------------------------------- #
-    ch = Challenge(direction="right")
-    passed = None
-    for step in [0.0, 0.0, 0.05, 0.12, 0.30, 0.30, 0.10, 0.02]:
-        base_x = 160
-        nose = base_x + step * 100 * (1 if not T.liveness_invert else -1)
-        f = Face((100, 100, 120, 120), 0.99, _landmarks_nose(base_x, nose), np.zeros(15, "float32"))
-        passed = ch.update(f)
-    check("liveness passes on simulated head turn", passed == "pass", str(passed))
+    # --- liveness (direction-agnostic: turn away from frontal, then back) --- #
+    box = (100, 100, 120, 120)
 
-    ch2 = Challenge(direction="right")
-    ch2._deadline = ch2._deadline - 999  # force expiry
-    still = Face((100, 100, 120, 120), 0.99, _landmarks_nose(160, 160), np.zeros(15, "float32"))
-    ch2.update(still)
-    check("liveness times out with no motion", ch2.update(still) == "timeout")
+    def _face_at(proxy: float) -> Face:
+        return Face(box, 0.99, _landmarks_nose(160, 160 + proxy * box[2]), np.zeros(15, "float32"))
+
+    ch = Challenge()
+    result = None
+    for proxy in [0.0] * 4 + [0.16] * 8 + [0.0] * 8:      # frontal, turn+hold, return
+        result = ch.update(_face_at(proxy))
+    check("liveness passes on a head turn and return", result == "pass", str(result))
+
+    ch_left = Challenge()
+    result = None
+    for proxy in [0.0] * 4 + [-0.16] * 8 + [0.0] * 8:     # the other way works too
+        result = ch_left.update(_face_at(proxy))
+    check("liveness is direction-agnostic", result == "pass", str(result))
+
+    ch2 = Challenge()
+    for _ in range(5):
+        ch2.update(_face_at(0.0))
+    ch2._deadline = time.monotonic() - 1
+    check("liveness times out with no motion", ch2.update(_face_at(0.0)) == "timeout")
 
     # --- end-to-end: track -> vote -> event -------------------------- #
     from types import SimpleNamespace

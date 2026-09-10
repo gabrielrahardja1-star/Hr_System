@@ -1,73 +1,69 @@
-"""Randomized head-turn challenge — the v1 anti-spoofing check.
+"""Head-turn challenge — the v1 anti-spoofing check.
 
-A held-up photo can pass an embedding match. Requiring a specific, randomly
-chosen head turn (done live, within a few seconds) defeats the casual attack: a
-still photo can't move, and a pre-recorded clip only matches the prompt half the
-time. This is not liveness-grade defence against a determined replay attack —
-that needs a dedicated anti-spoof model (a later option).
+A held-up photo passes an embedding match. Requiring a live head turn (a swing
+away from frontal and back, within a few seconds) defeats the casual attack: a
+still photo can't move. This is a deterrent, not liveness-grade defence against a
+determined video replay — that needs a dedicated anti-spoof model (a later option).
 
-Yaw proxy from YuNet's 5 landmarks: how far the nose sits between the two eyes,
-normalised by inter-eye distance. ~0 when frontal; swings toward one eye as the
-head turns. Sign of the swing vs. the spoken direction can differ by camera
-mirroring — flip config.T.liveness_invert if "turn left" registers as right.
+Direction-agnostic on purpose: a left/right *specific* turn depends on camera
+mirroring and is fiddly to calibrate on-site, for little extra security. We just
+need "the head moved, then came back".
+
+Yaw proxy from YuNet's 5 landmarks: how far the nose sits from the eye midline,
+normalised by the face-box width (stable as the head turns; inter-eye distance
+is not). ~0 frontal, grows as the head yaws either way.
 """
 
 from __future__ import annotations
 
-import random
 import time
-
-import numpy as np
+from collections import deque
 
 from .config import T
 from .engine import Face
 
-# YuNet landmark indices.
 _RIGHT_EYE, _LEFT_EYE, _NOSE = 0, 1, 2
 
 
 def yaw_proxy(face: Face) -> float:
     lmk = face.landmarks
-    re_x, le_x = float(lmk[_RIGHT_EYE][0]), float(lmk[_LEFT_EYE][0])
+    eye_mid_x = (float(lmk[_RIGHT_EYE][0]) + float(lmk[_LEFT_EYE][0])) / 2.0
     nose_x = float(lmk[_NOSE][0])
-    eye_span = abs(le_x - re_x)
-    if eye_span < 1e-3:
-        return 0.0
-    return (nose_x - (re_x + le_x) / 2.0) / eye_span
+    box_w = max(face.box[2], 1)
+    return (nose_x - eye_mid_x) / box_w
 
 
 class Challenge:
-    """One head-turn ask, driven frame by frame with `update()`."""
+    """One "turn your head" ask, driven frame by frame with `update()`."""
 
-    def __init__(self, direction: str | None = None) -> None:
-        self.direction = direction or random.choice(("left", "right"))
+    prompt = "Turn your head, then look back"
+
+    def __init__(self, _direction: str | None = None) -> None:
         self.baseline: float | None = None
+        self._samples: deque[float] = deque(maxlen=5)
+        self.peak = 0.0
         self.turned = False
         self.result: str | None = None          # None | "pass" | "timeout"
         self._deadline = time.monotonic() + T.liveness_timeout_s
-
-    @property
-    def prompt(self) -> str:
-        arrow = "<--" if self.direction == "left" else "-->"
-        return f"Turn your head {self.direction}  {arrow}"
-
-    def _target_sign(self) -> int:
-        base = -1 if self.direction == "left" else 1
-        return -base if T.liveness_invert else base
 
     def update(self, face: Face) -> str | None:
         if self.result is not None:
             return self.result
 
-        offset = yaw_proxy(face)
-        if self.baseline is None:
-            self.baseline = offset
+        self._samples.append(yaw_proxy(face))
+        smooth = sum(self._samples) / len(self._samples)
+
+        if self.baseline is None or len(self._samples) < 3:
+            self.baseline = smooth
             return None
 
-        delta = (offset - self.baseline) * self._target_sign()
-        if not self.turned and delta > T.liveness_yaw_delta:
+        delta = abs(smooth - self.baseline)
+        self.peak = max(self.peak, delta)
+        if not self.turned and self.peak >= T.liveness_yaw_delta:
             self.turned = True
-        elif self.turned and delta < T.liveness_yaw_delta * T.liveness_return_frac:
+        elif self.turned and delta <= self.peak * (1.0 - T.liveness_return_frac):
+            # came back at least `return_frac` of the way toward frontal — relative
+            # to how far they actually turned, so a landmark offset can't block it
             self.result = "pass"
 
         if self.result is None and time.monotonic() > self._deadline:
@@ -79,6 +75,6 @@ class Challenge:
         """0..1 for an on-screen bar."""
         if self.result == "pass":
             return 1.0
-        if self.baseline is None or not self.turned:
-            return 0.0
-        return 0.6
+        if self.turned:
+            return 0.75
+        return min(0.7, self.peak / max(T.liveness_yaw_delta, 1e-6) * 0.7)

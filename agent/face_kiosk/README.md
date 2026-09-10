@@ -130,17 +130,18 @@ Written to both `data/sightings.db` and `data/events.jsonl` per logged event:
 | `vote_frames` | 12 | demand more agreement before a punch (slower, safer) |
 | `debounce_seconds` | 120 | auto-log: widen the "already logged" window |
 | `capture_debounce_seconds` | 8 | manual: ignore a repeated Check In/Out tap this soon |
-| `liveness_yaw_delta` | 0.16 | need a bigger head turn |
-| `liveness_invert` | false | flip if "turn left" registers as a right turn on your camera |
+| `liveness_yaw_delta` | 0.10 | need a bigger head turn to count |
+| `liveness_return_frac` | 0.4 | make them turn back further before it passes |
 
 Expect to adjust `match_cosine` and `detect_score` on-site — entrance lighting,
 hi-vis, hats and motion blur all move the numbers.
 
 ## Known limits
 
-- **Liveness is a deterrent, not a guarantee.** A held photo fails, a random
-  direction beats a casual video replay, but a determined replay attack needs a
-  dedicated anti-spoof model (a planned option).
+- **Liveness is a deterrent, not a guarantee.** The head turn is direction-
+  agnostic ("moved, then came back"); a held photo fails it, a determined video
+  replay would need a dedicated anti-spoof model (a planned option). Run with
+  `--no-liveness` to skip it while tuning recognition.
 - **Biometric data.** Face embeddings are *data pribadi spesifik* under UU PDP
   27/2022. The gallery (`data/faces.gallery`) is Fernet-encrypted at rest with a
   local `data/faces.key` (chmod 600); nothing leaves the machine. Enrol only

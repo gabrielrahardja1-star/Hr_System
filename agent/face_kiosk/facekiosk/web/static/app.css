@@ -68,13 +68,14 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color:
 /* --- kiosk page --- */
 .panel.wide { grid-column: 1 / -1; }
 .kiosk { max-width: 760px; margin: 0 auto; }
-.kiosk-cam { position: relative; }
-.kiosk-cam .stream { aspect-ratio: 4/3; border-radius: 16px; }
+.kiosk-cam { position: relative; background: #000; border-radius: 16px; overflow: hidden; }
+.kiosk-cam .stream { display: block; width: 100%; height: auto; object-fit: contain; border-radius: 0; }
 .who { position: absolute; left: 16px; right: 16px; bottom: 16px; padding: 14px 18px;
-  border-radius: 12px; background: rgba(15, 18, 24, .72); color: #fff;
+  border-radius: 12px; background: rgba(15, 18, 24, .78); color: #fff;
   display: flex; flex-direction: column; gap: 2px; backdrop-filter: blur(4px); }
-.who[data-state="ready"] { background: rgba(22, 120, 60, .82); }
-.who[data-state="done"]  { background: rgba(22, 90, 150, .82); }
+.who[data-state="wait"]  { background: rgba(180, 120, 20, .85); }
+.who[data-state="ready"] { background: rgba(22, 120, 60, .85); }
+.who[data-state="done"]  { background: rgba(22, 90, 150, .85); }
 .who-name { font-size: 24px; font-weight: 700; }
 .who-sub { font-size: 13px; opacity: .8; }
 

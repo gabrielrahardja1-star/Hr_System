@@ -44,16 +44,29 @@ function kioskPage() {
   let current = null;      // {uid, name, ...} or null
   let busy = false;
 
-  function setReadout(cand) {
+  function setReadout(cand, hint) {
     current = cand;
     const ready = !!cand && !busy;
     btnIn.disabled = !ready;
     btnOut.disabled = !ready;
+    if (busy) return;
     if (cand) {
       who.dataset.state = "ready";
       whoName.textContent = cand.name;
-      whoSub.textContent = `match ${cand.similarity}`;
-    } else if (!busy) {
+      whoSub.textContent = "Tap Check In or Check Out";
+    } else if (hint && hint.stage === "liveness") {
+      who.dataset.state = "wait";
+      whoName.textContent = (hint.name ? hint.name + " — " : "") + "Turn your head";
+      whoSub.textContent = "…then look back at the camera";
+    } else if (hint && hint.stage === "recognizing") {
+      who.dataset.state = "wait";
+      whoName.textContent = "Recognising…";
+      whoSub.textContent = "hold still";
+    } else if (hint && hint.stage === "done") {
+      who.dataset.state = "done";
+      whoName.textContent = hint.name || "";
+      whoSub.textContent = hint.prompt || "";
+    } else {
       who.dataset.state = "idle";
       whoName.textContent = "Step up to the camera";
       whoSub.textContent = "";
@@ -63,8 +76,8 @@ function kioskPage() {
   async function poll() {
     if (busy) return;
     try {
-      const { candidate } = await (await fetch("/api/candidate")).json();
-      setReadout(candidate);
+      const { candidate, hint } = await (await fetch("/api/candidate")).json();
+      setReadout(candidate, hint);
     } catch (e) { /* transient */ }
   }
 

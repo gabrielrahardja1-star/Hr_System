@@ -179,9 +179,12 @@ class CameraWorker(threading.Thread):
 
     # --- manual capture (Check In / Check Out) --------------------- #
 
-    def candidate(self) -> dict | None:
+    def candidate(self) -> dict:
         with self.engine_lock:
-            return self.kiosk.current_candidate()
+            return {
+                "candidate": self.kiosk.current_candidate(),
+                "hint": self.kiosk.frontmost(),
+            }
 
     def stamp(self, direction: str) -> dict:
         if direction not in ("in", "out"):
@@ -298,7 +301,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/candidate")
     def api_candidate():
-        return {"candidate": worker.candidate()}
+        return worker.candidate()
 
     @app.post("/api/stamp")
     def api_stamp(body: dict = Body(...)):
