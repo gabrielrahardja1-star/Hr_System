@@ -1,0 +1,178 @@
+"""Verify the pipeline without a camera.
+
+    python -m facekiosk.selftest
+
+Downloads two public sample face images once, then checks: detection fires,
+embeddings match the same face and separate different faces, the gallery
+round-trips through encryption, the tracker keeps an identity across frames, and
+the liveness challenge passes on simulated motion and times out without it.
+Exits non-zero on the first failure.
+"""
+
+from __future__ import annotations
+
+import sys
+import urllib.request
+
+import numpy as np
+
+from .config import DATA_DIR, T
+from .engine import Face, FaceEngine
+from .gallery import Gallery
+from .liveness import Challenge
+from .tracker import IOUTracker
+
+_CACHE = DATA_DIR / "_selftest"
+_IMAGES = {
+    "person_a.jpg": "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/lena.jpg",
+    "person_b.jpg": "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/messi5.jpg",
+}
+
+_passed = 0
+
+
+def check(name: str, cond: bool, detail: str = "") -> None:
+    global _passed
+    mark = "ok  " if cond else "FAIL"
+    print(f"  [{mark}] {name}" + (f"  ({detail})" if detail else ""))
+    if not cond:
+        sys.exit(1)
+    _passed += 1
+
+
+def _fetch_images() -> dict[str, "np.ndarray"]:
+    import cv2
+
+    _CACHE.mkdir(parents=True, exist_ok=True)
+    out = {}
+    for fname, url in _IMAGES.items():
+        path = _CACHE / fname
+        if not path.exists():
+            req = urllib.request.Request(url, headers={"User-Agent": "facekiosk/selftest"})
+            with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+                path.write_bytes(resp.read())
+        out[fname] = cv2.imread(str(path))
+    return out
+
+
+def main() -> int:
+    print("facekiosk selftest")
+    engine = FaceEngine()
+    imgs = _fetch_images()
+
+    # --- detection + embedding ---------------------------------------- #
+    faces_a = engine.detect(imgs["person_a.jpg"])
+    faces_b = engine.detect(imgs["person_b.jpg"])
+    check("detect finds a face in image A", len(faces_a) >= 1, f"{len(faces_a)} found")
+    check("detect finds a face in image B", len(faces_b) >= 1, f"{len(faces_b)} found")
+
+    emb_a1 = engine.embed(imgs["person_a.jpg"], faces_a[0])
+    emb_a2 = engine.embed(imgs["person_a.jpg"], faces_a[0])
+    emb_b = engine.embed(imgs["person_b.jpg"], faces_b[0])
+    check("embedding is 128-d", emb_a1.shape == (128,), str(emb_a1.shape))
+    same = FaceEngine.cosine(emb_a1, emb_a2)
+    diff = FaceEngine.cosine(emb_a1, emb_b)
+    check("same face -> high cosine", same > 0.9, f"{same:.3f}")
+    check("different faces -> below match cut", diff < T.match_cosine, f"{diff:.3f}")
+
+    # --- gallery round-trip through encryption ----------------------- #
+    g = Gallery()
+    before = dict(g.people)
+    g.enroll("_st_a", "Selftest A", [emb_a1])
+    g.enroll("_st_b", "Selftest B", [emb_b])
+    g.save()
+    reloaded = Gallery()
+    try:
+        check("gallery reload keeps enrolled people", {"_st_a", "_st_b"} <= set(reloaded.people))
+        m = reloaded.identify(emb_a2, T.match_cosine)
+        check("identify returns the right uid", m.uid == "_st_a", f"{m.uid} sim={m.similarity:.3f}")
+        m_none = reloaded.identify(np.random.default_rng(0).standard_normal(128).astype("float32"), T.match_cosine)
+        check("random vector does not match", not m_none.ok, f"sim={m_none.similarity:.3f}")
+    finally:
+        reloaded.people = before
+        reloaded.save()
+
+    # --- tracker keeps identity across frames ----------------------- #
+    tr = IOUTracker()
+    box = (100, 100, 120, 120)
+    ids = set()
+    for dx in range(0, 40, 4):
+        f = Face((box[0] + dx, box[1], box[2], box[3]), 0.99, _landmarks(box[0] + dx, box[1]), _row(box, dx))
+        pairs = tr.update([f])
+        ids.add(pairs[0][0].id)
+    check("one moving face stays one track", len(ids) == 1, f"track ids seen: {ids}")
+
+    # --- liveness ------------------------------------------------- #
+    ch = Challenge(direction="right")
+    passed = None
+    for step in [0.0, 0.0, 0.05, 0.12, 0.30, 0.30, 0.10, 0.02]:
+        base_x = 160
+        nose = base_x + step * 100 * (1 if not T.liveness_invert else -1)
+        f = Face((100, 100, 120, 120), 0.99, _landmarks_nose(base_x, nose), np.zeros(15, "float32"))
+        passed = ch.update(f)
+    check("liveness passes on simulated head turn", passed == "pass", str(passed))
+
+    ch2 = Challenge(direction="right")
+    ch2._deadline = ch2._deadline - 999  # force expiry
+    still = Face((100, 100, 120, 120), 0.99, _landmarks_nose(160, 160), np.zeros(15, "float32"))
+    ch2.update(still)
+    check("liveness times out with no motion", ch2.update(still) == "timeout")
+
+    # --- end-to-end: track -> vote -> event -------------------------- #
+    from types import SimpleNamespace
+
+    from . import run as run_mod
+    from .run import Kiosk
+
+    g4 = Gallery()
+    keep = dict(g4.people)
+    g4.enroll("_st_e2e", "E2E Tester", [emb_a1, emb_a2])
+    g4.save()
+    real_log, run_mod.EVENT_LOG = run_mod.EVENT_LOG, _CACHE / "events.jsonl"
+    try:
+        kiosk = Kiosk(
+            SimpleNamespace(
+                camera=0,
+                conf_thres=T.detect_score,
+                match_cosine=T.match_cosine,
+                liveness=False,
+                no_window=True,
+                seconds=0,
+            )
+        )
+        for _ in range(T.vote_frames + 4):
+            kiosk.process(imgs["person_a.jpg"].copy())
+        check("full loop emits one event for the enrolled face", kiosk.events == 1, f"events={kiosk.events}")
+    finally:
+        run_mod.EVENT_LOG = real_log
+        restore = Gallery()
+        restore.people = keep
+        restore.save()
+
+    print(f"\n{_passed} checks passed.")
+    return 0
+
+
+def _landmarks(x: int, y: int) -> np.ndarray:
+    return np.array(
+        [[x + 35, y + 45], [x + 85, y + 45], [x + 60, y + 70], [x + 40, y + 95], [x + 80, y + 95]],
+        dtype=np.float32,
+    )
+
+
+def _landmarks_nose(eye_center_x: float, nose_x: float) -> np.ndarray:
+    return np.array(
+        [[eye_center_x - 25, 145], [eye_center_x + 25, 145], [nose_x, 170], [nose_x - 15, 195], [nose_x + 15, 195]],
+        dtype=np.float32,
+    )
+
+
+def _row(box, dx) -> np.ndarray:
+    r = np.zeros(15, dtype=np.float32)
+    r[:4] = [box[0] + dx, box[1], box[2], box[3]]
+    r[-1] = 0.99
+    return r
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,12 @@
+# Face-kiosk local runtime — none of this is committed.
+# (git has no inline comments in .gitignore — keep patterns on their own lines)
+.venv/
+
+# downloaded ONNX weights — fetch_models.py re-gets them
+models/
+
+# enrolled faces, encryption key, event log — biometric PII, never commit
+data/
+*.gallery
+*.key
+events.jsonl
