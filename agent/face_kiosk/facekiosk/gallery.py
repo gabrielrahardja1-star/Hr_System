@@ -27,6 +27,10 @@ def _now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
+def _bak_path():
+    return GALLERY_PATH.with_name(GALLERY_PATH.name + ".bak")
+
+
 def _load_key() -> bytes:
     if KEY_PATH.exists():
         return KEY_PATH.read_bytes()
@@ -93,9 +97,14 @@ class Gallery:
     # --- persistence ----------------------------------------------------- #
 
     def _load(self) -> None:
-        if not GALLERY_PATH.exists():
-            return
-        plain = self._fernet.decrypt(GALLERY_PATH.read_bytes())
+        path = GALLERY_PATH
+        if not path.exists():
+            bak = _bak_path()
+            if bak.exists():
+                path = bak  # main file missing/gone — fall back to the last backup
+            else:
+                return
+        plain = self._fernet.decrypt(path.read_bytes())
         with np.load(io.BytesIO(plain), allow_pickle=False) as blob:
             meta = json.loads(bytes(blob["_meta"]).decode("utf-8"))
             for i, m in enumerate(meta):
@@ -126,8 +135,16 @@ class Gallery:
         )
         buf = io.BytesIO()
         np.savez(buf, **arrays)
-        GALLERY_PATH.write_bytes(self._fernet.encrypt(buf.getvalue()))
-        os.chmod(GALLERY_PATH, 0o600)
+        token = self._fernet.encrypt(buf.getvalue())
+
+        # atomic: write a temp file, keep the previous file as .bak, then rename.
+        # A crash or bad write can cost at most the current save, never the store.
+        tmp = GALLERY_PATH.with_name(GALLERY_PATH.name + ".tmp")
+        tmp.write_bytes(token)
+        os.chmod(tmp, 0o600)
+        if GALLERY_PATH.exists():
+            GALLERY_PATH.replace(_bak_path())
+        tmp.replace(GALLERY_PATH)
 
     # --- mutation ------------------------------------------------------- #
 

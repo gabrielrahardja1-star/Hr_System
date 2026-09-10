@@ -2,28 +2,30 @@
 
     python -m facekiosk.selftest
 
-Downloads two public sample face images once, then checks: detection fires,
-embeddings match the same face and separate different faces, the gallery
-round-trips through encryption, the tracker keeps an identity across frames, and
-the liveness challenge passes on simulated motion and times out without it.
-Exits non-zero on the first failure.
+Checks detection, embedding match/separation, the encrypted gallery round-trip,
+the tracker, the liveness challenge, the auto/manual event paths, the sightings
+roll-up, and the web routes. Runs entirely inside a throwaway temp directory —
+it never touches data/faces.gallery or data/sightings.db. Exits non-zero on the
+first failure.
 """
 
 from __future__ import annotations
 
+import shutil
 import sys
+import tempfile
 import time
 import urllib.request
+from pathlib import Path
 
 import numpy as np
 
-from .config import DATA_DIR, T
+from .config import T
 from .engine import Face, FaceEngine
-from .gallery import Gallery
 from .liveness import Challenge
 from .tracker import IOUTracker
 
-_CACHE = DATA_DIR / "_selftest"
+_CACHE = Path()  # set to a temp dir by _sandbox()
 _IMAGES = {
     "person_a.jpg": "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/lena.jpg",
     "person_b.jpg": "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/messi5.jpg",
@@ -56,8 +58,47 @@ def _fetch_images() -> dict[str, "np.ndarray"]:
     return out
 
 
+def _sandbox(box: Path) -> dict:
+    """Point every on-disk path at `box` so the real data/ is never touched.
+    Returns the originals for restoration."""
+    from . import gallery as gmod
+    from . import run as rmod
+    from . import store as smod
+
+    orig = {
+        (gmod, "GALLERY_PATH"): gmod.GALLERY_PATH,
+        (gmod, "KEY_PATH"): gmod.KEY_PATH,
+        (gmod, "DATA_DIR"): gmod.DATA_DIR,
+        (smod, "DB_PATH"): smod.DB_PATH,
+        (rmod, "EVENT_LOG"): rmod.EVENT_LOG,
+        (rmod, "DATA_DIR"): rmod.DATA_DIR,
+    }
+    gmod.GALLERY_PATH = box / "faces.gallery"
+    gmod.KEY_PATH = box / "faces.key"
+    gmod.DATA_DIR = box
+    smod.DB_PATH = box / "sightings.db"
+    rmod.EVENT_LOG = box / "events.jsonl"
+    rmod.DATA_DIR = box
+    return orig
+
+
 def main() -> int:
+    global _CACHE
     print("facekiosk selftest")
+    box = Path(tempfile.mkdtemp(prefix="facekiosk-selftest-"))
+    _CACHE = box / "_images"
+    orig = _sandbox(box)
+    try:
+        return _run(box)
+    finally:
+        for (mod, attr), value in orig.items():
+            setattr(mod, attr, value)
+        shutil.rmtree(box, ignore_errors=True)
+
+
+def _run(box: Path) -> int:
+    from .gallery import Gallery
+
     engine = FaceEngine()
     imgs = _fetch_images()
 
@@ -78,36 +119,33 @@ def main() -> int:
 
     # --- gallery round-trip through encryption ----------------------- #
     g = Gallery()
-    before = dict(g.people)
     g.enroll("_st_a", "Selftest A", [emb_a1])
     g.enroll("_st_b", "Selftest B", [emb_b])
     g.save()
+    check("first save leaves no stale .bak", not (box / "faces.gallery.bak").exists())
+    g.enroll("_st_c", "Selftest C", [emb_b])
+    g.save()
+    check("save keeps the previous file as .bak", (box / "faces.gallery.bak").exists())
     reloaded = Gallery()
-    try:
-        check("gallery reload keeps enrolled people", {"_st_a", "_st_b"} <= set(reloaded.people))
-        m = reloaded.identify(emb_a2, T.match_cosine)
-        check("identify returns the right uid", m.uid == "_st_a", f"{m.uid} sim={m.similarity:.3f}")
-        m_none = reloaded.identify(np.random.default_rng(0).standard_normal(128).astype("float32"), T.match_cosine)
-        check("random vector does not match", not m_none.ok, f"sim={m_none.similarity:.3f}")
-    finally:
-        reloaded.people = before
-        reloaded.save()
+    check("gallery reload keeps enrolled people", {"_st_a", "_st_b", "_st_c"} <= set(reloaded.people))
+    m = reloaded.identify(emb_a2, T.match_cosine)
+    check("identify returns the right uid", m.uid == "_st_a", f"{m.uid} sim={m.similarity:.3f}")
+    m_none = reloaded.identify(np.random.default_rng(0).standard_normal(128).astype("float32"), T.match_cosine)
+    check("random vector does not match", not m_none.ok, f"sim={m_none.similarity:.3f}")
 
     # --- tracker keeps identity across frames ----------------------- #
     tr = IOUTracker()
-    box = (100, 100, 120, 120)
+    fbox = (100, 100, 120, 120)
     ids = set()
     for dx in range(0, 40, 4):
-        f = Face((box[0] + dx, box[1], box[2], box[3]), 0.99, _landmarks(box[0] + dx, box[1]), _row(box, dx))
+        f = Face((fbox[0] + dx, fbox[1], fbox[2], fbox[3]), 0.99, _landmarks(fbox[0] + dx, fbox[1]), _row(fbox, dx))
         pairs = tr.update([f])
         ids.add(pairs[0][0].id)
     check("one moving face stays one track", len(ids) == 1, f"track ids seen: {ids}")
 
     # --- liveness (direction-agnostic: turn away from frontal, then back) --- #
-    box = (100, 100, 120, 120)
-
     def _face_at(proxy: float) -> Face:
-        return Face(box, 0.99, _landmarks_nose(160, 160 + proxy * box[2]), np.zeros(15, "float32"))
+        return Face(fbox, 0.99, _landmarks_nose(160, 160 + proxy * fbox[2]), np.zeros(15, "float32"))
 
     ch = Challenge()
     result = None
@@ -130,55 +168,46 @@ def main() -> int:
     # --- end-to-end: track -> vote -> event -------------------------- #
     from types import SimpleNamespace
 
-    from . import run as run_mod
     from .run import Kiosk
 
     g4 = Gallery()
-    keep = dict(g4.people)
+    g4.people.clear()
     g4.enroll("_st_e2e", "E2E Tester", [emb_a1, emb_a2])
     g4.save()
-    real_log, run_mod.EVENT_LOG = run_mod.EVENT_LOG, _CACHE / "events.jsonl"
     args = SimpleNamespace(
         camera=0, conf_thres=T.detect_score, match_cosine=T.match_cosine,
         liveness=False, no_window=True, seconds=0,
     )
-    try:
-        auto = Kiosk(args, auto_log=True)
-        for _ in range(T.vote_frames + 4):
-            auto.process(imgs["person_a.jpg"].copy())
-        check("auto-log emits one event for the enrolled face", auto.events == 1, f"events={auto.events}")
+    auto = Kiosk(args, auto_log=True)
+    for _ in range(T.vote_frames + 4):
+        auto.process(imgs["person_a.jpg"].copy())
+    check("auto-log emits one event for the enrolled face", auto.events == 1, f"events={auto.events}")
 
-        manual = Kiosk(args, auto_log=False)
-        for _ in range(T.vote_frames + 4):
-            manual.process(imgs["person_a.jpg"].copy())
-        check("manual mode logs nothing until a capture", manual.events == 0, f"events={manual.events}")
-        cand = manual.current_candidate()
-        check("manual mode surfaces the recognised person as a candidate", cand and cand["uid"] == "_st_e2e", str(cand))
-        rec = manual.capture("in")
-        check("capture('in') logs one event with direction", rec and rec["direction"] == "in" and manual.events == 1, str(rec))
-        check("second capture within debounce is ignored", manual.capture("in") is None)
-    finally:
-        run_mod.EVENT_LOG = real_log
-        restore = Gallery()
-        restore.people = keep
-        restore.save()
+    manual = Kiosk(args, auto_log=False)
+    for _ in range(T.vote_frames + 4):
+        manual.process(imgs["person_a.jpg"].copy())
+    check("manual mode logs nothing until a capture", manual.events == 0, f"events={manual.events}")
+    cand = manual.current_candidate()
+    check("manual mode surfaces the recognised person as a candidate", cand and cand["uid"] == "_st_e2e", str(cand))
+    rec = manual.capture("in")
+    check("capture('in') logs one event with direction", rec and rec["direction"] == "in" and manual.events == 1, str(rec))
+    check("second capture within debounce is ignored", manual.capture("in") is None)
 
     # --- sightings store roll-up ----------------------------------- #
     from .store import SightingStore
 
-    st = SightingStore(_CACHE / "selftest_sightings.db")
-    try:
-        for ts, sim in [("2026-01-02T08:03:00+07:00", 0.7), ("2026-01-02T17:31:00+07:00", 0.8)]:
-            st.record({"ts": ts, "device_user_id": "K1", "emp_id": "42", "name": "Tester", "similarity": sim, "liveness": "pass"})
-        roll = st.roster_for_date("2026-01-02")
-        check(
-            "store rolls sightings into first/last per person",
-            len(roll) == 1 and roll[0]["first_seen"][11:16] == "08:03" and roll[0]["last_seen"][11:16] == "17:31" and roll[0]["sightings"] == 2,
-            str(roll),
-        )
-    finally:
-        st.close()
-        (_CACHE / "selftest_sightings.db").unlink(missing_ok=True)
+    st = SightingStore(box / "roll.db")
+    for ts, sim in [("2026-01-02T08:03:00+07:00", 0.7), ("2026-01-02T17:31:00+07:00", 0.8)]:
+        st.record({"ts": ts, "device_user_id": "K1", "emp_id": "42", "name": "Tester",
+                   "direction": "in", "similarity": sim, "liveness": "pass"})
+    roll = st.roster_for_date("2026-01-02")
+    check(
+        "store rolls sightings into first/last per person",
+        len(roll) == 1 and roll[0]["first_seen"][11:16] == "08:03"
+        and roll[0]["last_seen"][11:16] == "17:31" and roll[0]["sightings"] == 2,
+        str(roll),
+    )
+    st.close()
 
     # --- web app routes (camera intentionally absent) --------------- #
     try:
