@@ -1,16 +1,18 @@
-{% extends "base.html" %}
+{% extends "admin_base.html" %}
 {% set page = "register" %}
-{% block title %}Register · Face Kiosk{% endblock %}
+{% block title %}Register · Face Kiosk Admin{% endblock %}
 
 {% block content %}
 <div class="grid">
   <section class="camera-card">
-    <img src="/stream" alt="camera" class="stream">
+    <img src="/stream" alt="camera" class="stream" id="camStream">
     <p class="hint">Face the camera straight on, ~0.5&ndash;1&nbsp;m away, good light, one person in frame. Take shots at slightly different angles.</p>
   </section>
 
   <section class="panel">
     <h2>Register a person</h2>
+    <p class="consent">By registering, this person consents to their face being matched on this
+      device for attendance. No photos are stored — only a numeric embedding, encrypted at rest.</p>
     <form id="reg" autocomplete="off">
       <label>Name <span class="req">*</span>
         <input name="name" required maxlength="80" placeholder="Budi Santoso">
@@ -20,21 +22,30 @@
       </label>
 
       <div class="shots">
-        <button type="button" class="btn" id="capture">Capture shot</button>
-        <span id="shotcount" class="shotcount">0</span> / min {{ min_shots }}
+        <button type="button" class="btn primary" id="capture">Capture shot</button>
+        <span id="shotcount" class="shotcount">0</span><span class="mut"> / {{ max_shots }} shots (min {{ min_shots }})</span>
       </div>
-      <div class="dots" id="dots"></div>
+      <div class="thumbs" id="thumbs"></div>
 
       <div class="actions">
-        <button type="submit" class="btn primary" id="save" disabled>Save</button>
-        <button type="button" class="btn" id="cancel">Reset</button>
+        <button type="submit" class="btn" id="save" disabled>Save</button>
+        <button type="button" class="btn sm" id="cancel">Reset</button>
       </div>
-      <p id="msg" class="msg"></p>
+      <p id="msg" class="msg" role="status" aria-live="polite"></p>
     </form>
+
+    <div class="saved-panel" id="savedPanel" hidden>
+      <p class="msg ok" id="savedMsg"></p>
+      <div class="actions">
+        <a class="btn primary" href="/" target="_blank" rel="noopener">Test at the kiosk ↗</a>
+        <a class="btn" href="/admin/register">Register another</a>
+        <a class="btn sm" href="/admin/log">Back to log</a>
+      </div>
+    </div>
   </section>
 </div>
 {% endblock %}
 
 {% block script %}
-<script>registerPage({{ min_shots }});</script>
+<script>registerPage({{ min_shots }}, {{ max_shots }});</script>
 {% endblock %}

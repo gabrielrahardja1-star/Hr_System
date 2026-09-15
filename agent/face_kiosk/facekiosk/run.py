@@ -1,8 +1,8 @@
 """The recognition pipeline (`Kiosk`) and a self-contained OpenCV-window scanner.
 
-    python -m facekiosk.run --camera 1
-    python -m facekiosk.run --camera 1 --no-liveness --match-cosine 0.42
-    python -m facekiosk.run --camera 1 --no-window --seconds 60      # headless
+    python -m facekiosk.run --camera "HD Webcam C615"
+    python -m facekiosk.run --camera "HD Webcam C615" --no-liveness --match-cosine 0.42
+    python -m facekiosk.run --camera "HD Webcam C615" --no-window --seconds 60      # headless
 
 For each face it tracks across frames, votes on the identity, then (unless
 --no-liveness) runs a randomized head-turn challenge. What happens on a confirmed
@@ -49,6 +49,7 @@ class Kiosk:
         on_event: Callable[[dict], None] | None = None,
         gallery: Gallery | None = None,
         auto_log: bool = True,
+        debug_overlay: bool = True,
     ) -> None:
         self.args = args
         self.engine = FaceEngine(detect_score=args.conf_thres)
@@ -57,6 +58,11 @@ class Kiosk:
         self.debounce: dict[str, float] = {}     # uid -> monotonic time of last event
         self.events = 0
         self.auto_log = auto_log                 # False = a Check In/Out tap is the only logger
+        # Text/numbers on the video are a tuning aid, not user feedback — off by
+        # default for the web kiosk, on by default for the standalone `run.py`
+        # window (which is inherently a developer tool). Toggle live via ?debug=1.
+        self.debug_overlay = debug_overlay
+        self._candidate_track_id: int | None = None
         self._on_event = on_event
         self._pass = "skipped" if not args.liveness else "pass"
         if not self.gallery.people:
@@ -112,8 +118,8 @@ class Kiosk:
 
     # --- manual capture (the Check In / Check Out buttons) ----------- #
 
-    def current_candidate(self) -> dict | None:
-        """The person the app can stamp right now: a live, recognised, liveness-
+    def _pick_candidate_track(self) -> Track | None:
+        """The track the app can stamp right now: a live, recognised, liveness-
         cleared track that isn't inside its post-stamp debounce. Best match wins."""
         mono = time.monotonic()
         best: tuple[float, Track] | None = None
@@ -126,21 +132,25 @@ class Kiosk:
                 continue
             if best is None or tr.best_similarity > best[0]:
                 best = (tr.best_similarity, tr)
-        if best is None:
+        return best[1] if best else None
+
+    def current_candidate(self) -> dict | None:
+        track = self._pick_candidate_track()
+        if track is None:
             return None
-        uid, name = best[1].identity
+        uid, name = track.identity
         person = self.gallery.people.get(uid)
         return {
             "uid": uid,
             "name": name,
             "emp_id": person.emp_id if person else "",
-            "similarity": round(best[1].best_similarity, 3),
-            "track_id": best[1].id,
+            "similarity": round(track.best_similarity, 3),
+            "track_id": track.id,
         }
 
     def frontmost(self) -> dict | None:
         """What the biggest face on camera is doing right now — for the kiosk
-        readout (recognising / turn your head / ready / just logged)."""
+        readout (recognising / turn your head / ready / just logged / a dead end)."""
         tracks = [t for t in self.tracker.tracks if t.misses == 0]
         if not tracks:
             return None
@@ -148,6 +158,14 @@ class Kiosk:
         name = tr.identity[1] if tr.identity else None
         if tr.stage == "recognizing":
             return {"stage": "recognizing", "name": name, "prompt": "Hold still…", "progress": 0.0}
+        if tr.stage == "unrecognized":
+            return {
+                "stage": "unrecognized",
+                "name": None,
+                "prompt": "Not recognised. See HR to enrol.",
+                "progress": 0.0,
+                "retryable": True,
+            }
         if tr.stage == "awaiting_liveness":
             ch = tr.challenge
             return {
@@ -156,11 +174,36 @@ class Kiosk:
                 "prompt": "Turn your head, then look back",
                 "progress": round(ch.progress, 2) if ch else 0.0,
             }
+        if tr.stage == "liveness_failed":
+            return {
+                "stage": "liveness_failed",
+                "name": name,
+                "prompt": "Didn't catch that — try again",
+                "progress": 0.0,
+                "retryable": True,
+            }
         if tr.stage == "ready":
             return {"stage": "ready", "name": name, "prompt": "Tap Check In or Check Out", "progress": 1.0}
         if tr.stage == "committed":
             return {"stage": "done", "name": name, "prompt": getattr(tr, "greet_text", "Done"), "progress": 1.0}
         return None
+
+    def retry(self) -> bool:
+        """Force the frontmost dead-ended track (liveness_failed / unrecognized)
+        back to recognizing right now, instead of waiting out its hold timer —
+        the kiosk's "Try again" button."""
+        tracks = [t for t in self.tracker.tracks if t.misses == 0]
+        if not tracks:
+            return False
+        tr = max(tracks, key=lambda t: t.face.size)
+        if tr.stage not in ("liveness_failed", "unrecognized"):
+            return False
+        tr.stage = "recognizing"
+        tr.votes.clear()
+        tr.identity = None
+        tr.liveness_tries = 0
+        tr.stage_until = 0.0
+        return True
 
     def capture(self, direction: str) -> dict | None:
         """Stamp the current candidate with a direction. None if nobody is ready."""
@@ -198,6 +241,7 @@ class Kiosk:
     def _step_track(self, track: Track, frame) -> None:
         face = track.face
         stage = track.stage
+        dbg = self.debug_overlay
 
         if stage == "recognizing":
             emb = self.engine.embed(frame, face)
@@ -206,9 +250,13 @@ class Kiosk:
             track.best_similarity = max(track.best_similarity, match.similarity)
 
             leader_uid, count = track.leader()
-            label = self.gallery.people[leader_uid].name if leader_uid else "?"
-            viz.draw_box(frame, face.box, viz.AMBER, f"{label}  {match.similarity:.2f}")
-            _vote_bar(frame, face.box, count)
+            label = ""
+            if dbg:
+                name_lbl = self.gallery.people[leader_uid].name if leader_uid else "?"
+                label = f"{name_lbl}  {match.similarity:.2f}"
+            viz.draw_box(frame, face.box, viz.AMBER, label)
+            if dbg:
+                _vote_bar(frame, face.box, count)
 
             if track.vote_settled() and leader_uid:
                 name = self.gallery.people[leader_uid].name
@@ -218,12 +266,24 @@ class Kiosk:
                     track.challenge = Challenge()
                 else:
                     self._confirm(track, leader_uid, name)
+            elif len(track.votes) >= T.unrecognized_vote_frames and not leader_uid:
+                # Votes are in and nobody won — a stranger, not a misfire. Say so
+                # instead of leaving the box amber forever.
+                track.stage = "unrecognized"
+                track.stage_until = time.monotonic() + T.unrecognized_hold_s
+                track.votes.clear()
+
+        elif stage == "unrecognized":
+            viz.draw_box(frame, face.box, viz.RED, "Not recognised" if dbg else "")
+            if time.monotonic() > track.stage_until:
+                track.stage = "recognizing"
 
         elif stage == "awaiting_liveness":
             uid, name = track.identity
             result = track.challenge.update(face)
-            viz.draw_box(frame, face.box, viz.AMBER, f"{name} — turn your head")
-            viz.progress_bar(frame, track.challenge.progress, viz.AMBER)
+            viz.draw_box(frame, face.box, viz.AMBER, f"{name} — turn your head" if dbg else "")
+            if dbg:
+                viz.progress_bar(frame, track.challenge.progress, viz.AMBER)
             if result is not None:
                 print(f"liveness {result} for {name}: peak={track.challenge.peak:.3f} "
                       f"(need {T.liveness_yaw_delta})", file=sys.stderr)
@@ -232,28 +292,48 @@ class Kiosk:
             elif result == "timeout":
                 track.liveness_tries += 1
                 if track.liveness_tries >= T.liveness_retries:
-                    track.stage = "recognizing"
-                    track.votes.clear()
+                    # A silent reset here is the worst thing a kiosk can do to
+                    # someone standing in front of it — say it failed and give
+                    # a way out (auto-retry after a hold, or the Try Again button).
+                    track.stage = "liveness_failed"
+                    track.stage_until = time.monotonic() + T.liveness_fail_hold_s
                     track.challenge = None
-                    track.liveness_tries = 0
                 else:
                     track.challenge = Challenge()   # re-arm, keep the identity
+
+        elif stage == "liveness_failed":
+            uid, name = track.identity if track.identity else (None, None)
+            viz.draw_box(frame, face.box, viz.RED, f"{name} — try again" if dbg and name else "")
+            if time.monotonic() > track.stage_until:
+                track.stage = "recognizing"
+                track.votes.clear()
+                track.identity = None
+                track.liveness_tries = 0
 
         elif stage == "ready":
             uid, name = track.identity
             mono = time.monotonic()
             stamped = self.debounce.get(uid)
+            label = f"{name}" if dbg else ""
             if stamped is not None and mono - stamped < T.capture_debounce_seconds:
-                viz.draw_box(frame, face.box, viz.GREY, f"{name}  logged")
+                viz.draw_box(frame, face.box, viz.GREY, f"{label}  logged" if dbg else "")
+            elif track.id == self._candidate_track_id:
+                # The one box the Check In/Out button actually refers to.
+                viz.draw_box(frame, face.box, viz.GREEN, f"{label}  — tap Check In / Out" if dbg else "")
             else:
-                viz.draw_box(frame, face.box, viz.GREEN, f"{name}  — tap Check In / Out")
+                # Recognised but not the candidate the button would stamp — grey,
+                # so a crowd never shows two boxes claiming the same tap.
+                viz.draw_box(frame, face.box, viz.GREY, label)
 
         elif stage == "committed":
             uid, name = track.identity
             done = time.monotonic() > track.greet_until
             color = viz.GREY if done else viz.GREEN
-            tail = "" if done else f"  {getattr(track, 'greet_text', 'OK')}"
-            viz.draw_box(frame, face.box, color, f"{name}{tail}")
+            label = ""
+            if dbg:
+                tail = "" if done else f"  {getattr(track, 'greet_text', 'OK')}"
+                label = f"{name}{tail}"
+            viz.draw_box(frame, face.box, color, label)
 
     # --- main loop -------------------------------------------------- #
 
@@ -261,7 +341,10 @@ class Kiosk:
         """Run one frame through the whole pipeline; returns the faces detected
         this frame. Camera-free entry point — used by the loop and by selftest."""
         faces = [f for f in self.engine.detect(frame) if f.size >= T.min_face_px]
-        for track, _face in self.tracker.update(faces):
+        pairs = self.tracker.update(faces)
+        cand = self._pick_candidate_track()
+        self._candidate_track_id = cand.id if cand is not None else None
+        for track, _face in pairs:
             self._step_track(track, frame)
         return faces
 
@@ -323,7 +406,12 @@ def _vote_bar(frame, box, count: int) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--camera", type=int, default=0)
+    ap.add_argument(
+        "--camera",
+        default="",
+        help='camera NAME, e.g. --camera "HD Webcam C615" (see python -m facekiosk.camera). '
+             "Empty takes the first connected camera.",
+    )
     ap.add_argument("--conf-thres", type=float, default=T.detect_score, help="YuNet face-box score cut")
     ap.add_argument("--match-cosine", type=float, default=T.match_cosine, help="same-identity cosine cut")
     ap.add_argument("--no-liveness", dest="liveness", action="store_false", help="skip the head-turn challenge")

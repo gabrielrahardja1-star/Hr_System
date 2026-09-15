@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin login · Face Kiosk</title>
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <h1>Face Kiosk admin</h1>
+    <p class="hint">Enter the admin PIN. It was printed to the console when the kiosk started
+      (or saved to <code>data/admin.pin</code>); set <code>FACEKIOSK_ADMIN_PIN</code> to fix one.</p>
+    <form method="post" action="/admin/login" autocomplete="off">
+      <input type="hidden" name="next" value="{{ next }}">
+      <label for="pin">PIN</label>
+      <input id="pin" name="pin" type="password" inputmode="numeric" autofocus required maxlength="32">
+      {% if error %}<p class="msg bad" role="alert">{{ error }}</p>{% endif %}
+      <button type="submit" class="btn primary">Log in</button>
+    </form>
+  </main>
+</body>
+</html>

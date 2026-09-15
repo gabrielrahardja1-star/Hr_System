@@ -44,6 +44,7 @@ class Track:
         self.committed_uid: str | None = None
         self.greet_until = 0.0                          # monotonic time to show the tick
         self.greet_text = "OK"
+        self.stage_until = 0.0                          # monotonic deadline for a terminal stage
 
     def vote(self, name: str | None) -> None:
         self.votes.append(name or "?")

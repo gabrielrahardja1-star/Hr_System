@@ -6,7 +6,13 @@
 #   agent/face_kiosk/.venv/bin/pip install -r agent/face_kiosk/requirements.txt
 #   agent/face_kiosk/.venv/bin/python -m facekiosk.fetch_models
 
-opencv-python>=5.0        # bundles FaceDetectorYN (YuNet) + FaceRecognizerSF (SFace)
+# SYSTEM DEPENDENCY: ffmpeg (brew install ffmpeg)
+#   Capture goes through ffmpeg's avfoundation input so cameras can be selected
+#   by NAME. OpenCV's VideoCapture only takes a positional index, and those
+#   indices reshuffle when a webcam or Continuity Camera connects/disconnects —
+#   which silently repoints a saved camera at a different physical device.
+
+opencv-python>=5.0        # FaceDetectorYN (YuNet) + FaceRecognizerSF (SFace); detection/embedding only
 numpy>=2.0
 cryptography>=42          # Fernet — encrypts the local face gallery at rest
 
@@ -14,6 +20,5 @@ cryptography>=42          # Fernet — encrypts the local face gallery at rest
 fastapi>=0.115
 uvicorn>=0.30
 jinja2>=3.1
-
-# Phase 2 (HQ wiring) will add:
-# httpx>=0.27             # POST batches to /api/v1/punches, same as the pyzk agent
+python-multipart>=0.0.9   # form parsing for the /admin/login PIN form
+httpx>=0.27                # POST batches to /api/v1/punches, same as the pyzk agent

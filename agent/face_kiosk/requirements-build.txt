@@ -1,0 +1,3 @@
+# Build-only tooling — not needed to run the kiosk from source, only to
+# produce a standalone executable via `pyinstaller facekiosk.spec`.
+pyinstaller>=6.0

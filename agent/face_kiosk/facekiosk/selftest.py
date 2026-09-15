@@ -11,6 +11,7 @@ first failure.
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import tempfile
@@ -20,12 +21,14 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import T
+from .config import KIOSK_DIR, T
 from .engine import Face, FaceEngine
 from .liveness import Challenge
 from .tracker import IOUTracker
 
-_CACHE = Path()  # set to a temp dir by _sandbox()
+# Public sample images only (no PII) — cached persistently so repeat runs don't
+# hit the network, but kept out of data/ (the sandbox below never touches that).
+_CACHE = KIOSK_DIR / ".selftest_cache"
 _IMAGES = {
     "person_a.jpg": "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/lena.jpg",
     "person_b.jpg": "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/messi5.jpg",
@@ -83,10 +86,8 @@ def _sandbox(box: Path) -> dict:
 
 
 def main() -> int:
-    global _CACHE
     print("facekiosk selftest")
     box = Path(tempfile.mkdtemp(prefix="facekiosk-selftest-"))
-    _CACHE = box / "_images"
     orig = _sandbox(box)
     try:
         return _run(box)
@@ -215,14 +216,54 @@ def _run(box: Path) -> int:
 
         from . import app as app_mod
 
-        app_mod._SETTINGS.camera = 999
+        app_mod._SETTINGS.camera = "no such camera"
+        # A PIN via env var short-circuits _admin_pin() before it ever touches
+        # disk — admin.pin's path is derived from config.DATA_DIR at app.py's
+        # own import time, which the sandbox above doesn't reach (it only
+        # rebinds the copies gallery.py/store.py/run.py already hold).
+        os.environ["FACEKIOSK_ADMIN_PIN"] = "135790"
         with TestClient(app_mod.create_app()) as client:
-            codes = {p: client.get(p).status_code
-                     for p in ("/", "/log", "/register", "/api/status", "/api/roster", "/api/candidate")}
-            check("web app serves its pages without a camera", all(v == 200 for v in codes.values()), str(codes))
+            codes = {p: client.get(p).status_code for p in ("/", "/api/status", "/api/candidate")}
+            check("kiosk routes serve without a camera", all(v == 200 for v in codes.values()), str(codes))
             check("web app reports the camera failure", client.get("/api/status").json()["camera_ok"] is False)
             check("no candidate when nobody is on camera", client.get("/api/candidate").json()["candidate"] is None)
             check("stamp with no candidate is refused", client.post("/api/stamp", json={"direction": "in"}).status_code == 409)
+
+            # --- admin pages/APIs are gated until a PIN session exists ---- #
+            check("admin index without a session redirects to login",
+                  client.get("/admin/log", follow_redirects=False).status_code == 302)
+            check("admin register without a session redirects to login",
+                  client.get("/admin/register", follow_redirects=False).status_code == 302)
+            check("admin API without a session is refused",
+                  client.get("/api/roster").status_code == 401)
+            check("camera list is public — the kiosk has its own picker too",
+                  client.get("/api/cameras").status_code == 200)
+            check("camera switch is public",
+                  client.post("/api/camera", json={"name": "no such camera"}).status_code == 200)
+            check("wrong PIN is refused",
+                  client.post("/admin/login", data={"pin": "000000", "next": "/admin/log"},
+                              follow_redirects=False).status_code == 401)
+
+            login = client.post("/admin/login", data={"pin": "135790", "next": "/admin/log"},
+                                 follow_redirects=False)
+            check("correct PIN starts an admin session", login.status_code == 302 and "fk_admin" in client.cookies)
+
+            check("admin pages now load", client.get("/admin/log").status_code == 200)
+            check("admin roster API now works", client.get("/api/roster").status_code == 200)
+
+            cams = client.get("/api/cameras").json()
+            check("camera list is by NAME, not index",
+                  "cameras" in cams and cams.get("current") == "no such camera"
+                  and all("name" in c and "index" not in c for c in cams["cameras"]), str(cams))
+            check("switching to an absent camera is accepted (async)",
+                  client.post("/api/camera", json={"name": "Nonexistent Cam"}).status_code == 200)
+            check("camera switch requires a name", client.post("/api/camera", json={}).status_code == 422)
+            check("empty camera name rejects", client.post("/api/camera", json={"name": "  "}).status_code == 422)
+            time.sleep(0.5)  # let the camera thread act on the switch request
+            check("camera thread survives a bad switch", client.get("/api/status").status_code == 200)
+
+            client.post("/admin/logout")
+            check("logout ends the admin session", client.get("/api/roster").status_code == 401)
     except ImportError:
         print("  [skip] web app checks (fastapi/httpx not installed)")
 

@@ -1,0 +1,123 @@
+/* Admin surface — a desk tool. Sitting down, with a keyboard, doing
+   enrolment/audit/correction work. Type scale and density are tuned for that,
+   deliberately different from the kiosk (which is a different audience). */
+
+:root {
+  --bg: #f4f5f7; --card: #fff; --ink: #1c2128; --mut: #6b7280;
+  --line: #e2e5e9; --accent: #2563eb; --ok: #16a34a; --bad: #dc2626; --warn: #d97706;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }   /* belt-and-suspenders: an author `display` rule
+  otherwise always beats the UA stylesheet's [hidden], regardless of specificity */
+body { margin: 0; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--ink); }
+
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+.topbar { display: flex; align-items: center; gap: 20px; padding: 12px 20px;
+  background: var(--card); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.brand { font-weight: 700; }
+.tag { font-weight: 400; font-size: 12px; color: var(--mut); border: 1px solid var(--line);
+  border-radius: 999px; padding: 1px 8px; margin-left: 4px; }
+.topbar nav { display: flex; gap: 4px; flex-wrap: wrap; }
+.topbar nav a { text-decoration: none; color: var(--mut); padding: 6px 12px; border-radius: 8px; }
+.topbar nav a:hover { background: var(--bg); }
+.topbar nav a.on { background: var(--accent); color: #fff; font-weight: 600; }
+.camsel { display: flex; align-items: center; gap: 6px; }
+.camsel select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px;
+  border: 1px solid var(--line); background: #fff; color: var(--ink); max-width: 220px; }
+.camsel .btn.sm { min-width: 44px; min-height: 44px; padding: 0; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 16px; }
+.status { font-size: 13px; color: var(--mut); white-space: nowrap; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; vertical-align: middle; }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); }
+.logout { margin: 0; }
+
+@media (max-width: 760px) {
+  .topbar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .topbar nav { order: 2; }
+  .camsel { order: 3; justify-content: space-between; }
+  .camsel select { flex: 1; max-width: none; }
+  .status { order: 4; }
+  .logout { order: 5; align-self: flex-end; }
+}
+
+main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+.grid { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+  gap: 20px; align-items: start; }
+@media (max-width: 780px) { .grid { grid-template-columns: 1fr; } }
+
+.camera-card { grid-row: span 2; }
+.stream { width: 100%; border-radius: 12px; background: #000; display: block; aspect-ratio: 4/3;
+  object-fit: cover; border: 1px solid var(--line); }
+.hint { font-size: 13px; color: var(--mut); margin: 8px 2px 0; }
+.consent { font-size: 12px; color: var(--mut); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 10px; margin: 0 0 14px; }
+
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.panel h2 { margin: 0 0 12px; font-size: 15px; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+.panel-head h2 { margin: 0; }
+.panel-head-actions { display: flex; align-items: center; gap: 8px; }
+.filter { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: #fff; color: var(--ink); }
+
+table.log { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.log th { text-align: left; font-weight: 600; color: var(--mut); font-size: 12px;
+  text-transform: uppercase; letter-spacing: .04em; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+table.log td { padding: 8px; border-bottom: 1px solid var(--line); }
+table.log tr:last-child td { border-bottom: 0; }
+table.log tr[hidden] { display: none; }
+.mut { color: var(--mut); }
+.empty { color: var(--mut); text-align: center; padding: 18px 8px; }
+
+label { display: block; margin-bottom: 12px; font-size: 13px; color: var(--mut); }
+label .req { color: var(--bad); }
+input { display: block; width: 100%; margin-top: 4px; padding: 8px 10px; font-size: 15px;
+  border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: #fff; }
+input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+
+.btn { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+  background: #fff; cursor: pointer; color: var(--ink); text-decoration: none; display: inline-block; }
+.btn:hover { background: var(--bg); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:disabled { opacity: .45; cursor: not-allowed; }
+.btn.sm { padding: 4px 10px; font-size: 13px; min-height: 32px; }
+.btn.danger { color: var(--bad); border-color: #f0c6c6; }
+.btn.danger:hover { background: #fdeaea; }
+.btn:focus-visible, select:focus-visible, input:focus-visible, .topbar nav a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.shots { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.shotcount { font-weight: 700; font-size: 18px; }
+.thumbs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.thumb { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--line); background: var(--bg); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb button { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 999px;
+  border: 0; background: rgba(0,0,0,.65); color: #fff; font-size: 13px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; padding: 0; }
+.thumb button:hover { background: var(--bad); }
+.actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.msg { min-height: 20px; margin: 10px 0 0; font-size: 13px; }
+.msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+.saved-panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+
+/* --- custom dialog, replacing native alert()/confirm() --------------- */
+.dialog-overlay { position: fixed; inset: 0; background: rgba(15,18,24,.45);
+  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 20; }
+.dialog { background: var(--card); border-radius: 12px; padding: 20px; max-width: 380px; width: 100%;
+  box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+.dialog h3 { margin: 0 0 8px; font-size: 16px; }
+.dialog p { margin: 0 0 16px; font-size: 14px; color: var(--mut); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* --- admin login ------------------------------------------------------ */
+.login-body { display: flex; align-items: center; justify-content: center; min-height: 100vh;
+  margin: 0; background: var(--bg); font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+.login-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 28px; max-width: 340px; width: 100%; margin: 20px; }
+.login-card h1 { font-size: 18px; margin: 0 0 8px; }
+.login-card code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.login-card .btn { width: 100%; text-align: center; margin-top: 4px; }

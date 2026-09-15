@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Face Kiosk Admin{% endblock %}</title>
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Face Kiosk <span class="tag">admin</span></div>
+    <nav aria-label="Admin sections">
+      <a href="/admin/log" {% if page == 'log' %}class="on" aria-current="page"{% endif %}>Log</a>
+      <a href="/admin/register" {% if page == 'register' %}class="on" aria-current="page"{% endif %}>Register</a>
+      <a href="/" target="_blank" rel="noopener">View kiosk ↗</a>
+    </nav>
+    <div class="camsel">
+      <label for="camSelect" class="visually-hidden">Camera</label>
+      <select id="camSelect"><option>loading…</option></select>
+      <button type="button" id="camRefresh" class="btn sm" aria-label="Re-scan cameras" title="Re-scan cameras">⟳</button>
+    </div>
+    <div class="status" id="statusBox" role="status" aria-live="polite">
+      {% if status.camera_ok %}
+        <span class="dot ok"></span> {{ status.camera }} · {{ status.fps }} fps
+      {% elif status.error %}
+        <span class="dot bad"></span> {{ status.error }}
+      {% else %}
+        <span class="dot warn"></span> starting camera…
+      {% endif %}
+      · {{ status.enrolled }} enrolled
+    </div>
+    <form method="post" action="/admin/logout" class="logout"><button type="submit" class="btn sm">Log out</button></form>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <script src="/static/admin.js"></script>
+  <script>initCameraPicker(); startStatusPoll();</script>
+  {% block script %}{% endblock %}
+</body>
+</html>

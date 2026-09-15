@@ -1,25 +1,48 @@
-{% extends "base.html" %}
-{% set page = "kiosk" %}
-{% block title %}Kiosk · Face Kiosk{% endblock %}
-
-{% block content %}
-<div class="kiosk">
-  <div class="kiosk-cam">
-    <img src="/stream" alt="camera" class="stream">
-    <div class="who" id="who" data-state="idle">
-      <span class="who-name" id="whoName">Step up to the camera</span>
-      <span class="who-sub" id="whoSub">{% if status.liveness %}you'll be asked to turn your head{% endif %}</span>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <title>Face Kiosk</title>
+  <link rel="stylesheet" href="/static/kiosk.css">
+</head>
+<body>
+  <main class="kiosk" id="kiosk" data-state="idle">
+    <div class="kiosk-cam">
+      <img src="/stream" alt="" class="stream">
+      <div class="cam-picker">
+        <select id="camSelect" aria-label="Camera"><option>…</option></select>
+        <button type="button" id="camRefresh" aria-label="Re-scan cameras" title="Re-scan cameras">⟳</button>
+      </div>
+      <div class="cam-down" id="camDown" hidden role="alert">
+        <p>Camera down</p>
+        <p class="sub">Tell HR — attendance isn't being recorded right now.</p>
+      </div>
     </div>
-  </div>
 
-  <div class="kiosk-actions">
-    <button class="stamp in"  id="btnIn"  disabled>Check&nbsp;In</button>
-    <button class="stamp out" id="btnOut" disabled>Check&nbsp;Out</button>
-  </div>
-  <div class="toast" id="toast" hidden></div>
-</div>
-{% endblock %}
+    <section class="kiosk-panel">
+      <div class="readout" role="status" aria-live="polite">
+        <p class="name" id="whoName">Step up to the camera</p>
+        <p class="sub" id="whoSub"></p>
+      </div>
 
-{% block script %}
-<script>kioskPage();</script>
-{% endblock %}
+      <div class="kiosk-actions" id="actions">
+        <button type="button" class="stamp primary" id="btnPrimary" disabled></button>
+        <button type="button" class="stamp secondary" id="btnSecondary" disabled></button>
+      </div>
+
+      <button type="button" class="retry" id="btnRetry" hidden>Try again</button>
+    </section>
+
+    <div class="confirm" id="confirm" hidden aria-live="assertive" role="status">
+      <p class="confirm-name" id="confirmName"></p>
+      <p class="confirm-dir" id="confirmDir"></p>
+      <p class="confirm-time" id="confirmTime"></p>
+    </div>
+
+    <p class="privacy">Your face is matched on this device. No photos are kept.</p>
+  </main>
+  <script src="/static/kiosk.js"></script>
+  <script>kioskPage(); initKioskCameraPicker();</script>
+</body>
+</html>

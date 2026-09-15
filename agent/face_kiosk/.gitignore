@@ -5,8 +5,18 @@
 # downloaded ONNX weights — fetch_models.py re-gets them
 models/
 
+# vendored static ffmpeg — fetch_ffmpeg.py re-gets it
+vendor/
+
 # enrolled faces, encryption key, event log — biometric PII, never commit
 data/
 *.gallery
 *.key
 events.jsonl
+
+# selftest's cached public sample images (no PII, just avoids a re-download)
+.selftest_cache/
+
+# PyInstaller build output — build with `pyinstaller facekiosk.spec`
+build/
+dist/

@@ -1,7 +1,7 @@
 """Enrol, list, or remove employees in the local face gallery.
 
     # capture from the webcam (press SPACE for each shot, or --auto)
-    python -m facekiosk.enroll --uid 1001 --name "Budi Santoso" --camera 1
+    python -m facekiosk.enroll --uid 1001 --name "Budi Santoso" --camera "HD Webcam C615"
 
     # enrol from a folder of photos instead of the camera
     python -m facekiosk.enroll --uid 1001 --name "Budi Santoso" --from-images ./budi/
@@ -39,7 +39,7 @@ def _biggest_single_face(faces: list[Face]) -> Face | None:
     return faces[0]
 
 
-def _capture_from_camera(engine: FaceEngine, cam: int, want: int, auto: bool) -> list[np.ndarray]:
+def _capture_from_camera(engine: FaceEngine, cam: str, want: int, auto: bool) -> list[np.ndarray]:
     cap = open_camera(cam)
     shots: list[np.ndarray] = []
     last_auto = 0.0
@@ -118,7 +118,12 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--uid", help="employee device_user_id")
     ap.add_argument("--name", help="display name")
-    ap.add_argument("--camera", type=int, default=0)
+    ap.add_argument(
+        "--camera",
+        default="",
+        help='camera NAME, e.g. --camera "HD Webcam C615" (see python -m facekiosk.camera). '
+             "Empty takes the first connected camera.",
+    )
     ap.add_argument("--shots", type=int, default=7)
     ap.add_argument("--auto", action="store_true", help="auto-capture when a face is steady")
     ap.add_argument("--from-images", type=Path, metavar="DIR")

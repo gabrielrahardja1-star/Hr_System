@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS sightings (
     seen_at    TEXT NOT NULL,          -- ISO 8601, local time with offset
     seen_date  TEXT NOT NULL,          -- YYYY-MM-DD, local
     similarity REAL,
-    liveness   TEXT
+    liveness   TEXT,
+    synced_at  TEXT               -- set once POSTed to HQ; NULL = pending
 );
 CREATE INDEX IF NOT EXISTS ix_sightings_date ON sightings(seen_date);
 CREATE INDEX IF NOT EXISTS ix_sightings_uid  ON sightings(uid);
@@ -48,6 +49,8 @@ class SightingStore:
         cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(sightings)")}
         if "direction" not in cols:  # db created before Check In/Out
             self._conn.execute("ALTER TABLE sightings ADD COLUMN direction TEXT NOT NULL DEFAULT ''")
+        if "synced_at" not in cols:  # db created before HQ sync
+            self._conn.execute("ALTER TABLE sightings ADD COLUMN synced_at TEXT")
 
     def record(self, event: dict) -> int:
         """Insert one sighting from a Kiosk event record. Returns the row id."""
@@ -83,7 +86,7 @@ class SightingStore:
 
     def roster_for_date(self, day: str | None = None) -> list[dict]:
         """Per-person roll-up for `day`: check-in (first 'in', else first sighting),
-        check-out (last 'out'), and total taps."""
+        check-out (last 'out'), hours between them, and total records."""
         day = day or dt.date.today().isoformat()
         with self._lock:
             rows = self._conn.execute(
@@ -103,8 +106,58 @@ class SightingStore:
         for r in rows:
             d = dict(r)
             d["check_in"] = d["check_in"] or d["first_seen"]
+            d["hours"] = _hours_between(d["check_in"], d["check_out"])
             out.append(d)
         return out
+
+    def last_stamp(self, uid: str, day: str | None = None) -> dict | None:
+        """The most recent Check In/Out tap for `uid` on `day` — used to decide
+        which button the kiosk should lead with next."""
+        day = day or dt.date.today().isoformat()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT direction, seen_at FROM sightings "
+                "WHERE uid = ? AND seen_date = ? AND direction IN ('in', 'out') "
+                "ORDER BY seen_at DESC, id DESC LIMIT 1",
+                (uid, day),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def void_last(self, uid: str, day: str | None = None) -> bool:
+        """Delete the most recent sighting for `uid` on `day` — correcting a
+        mis-stamp without touching anyone else's records."""
+        day = day or dt.date.today().isoformat()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id FROM sightings WHERE uid = ? AND seen_date = ? "
+                "ORDER BY seen_at DESC, id DESC LIMIT 1",
+                (uid, day),
+            ).fetchone()
+            if row is None:
+                return False
+            self._conn.execute("DELETE FROM sightings WHERE id = ?", (row["id"],))
+            self._conn.commit()
+            return True
+
+    def unsynced(self, limit: int = 500) -> list[dict]:
+        """Sightings never POSTed to HQ, oldest first."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM sightings WHERE synced_at IS NULL ORDER BY seen_at ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_synced(self, ids: list[int]) -> None:
+        if not ids:
+            return
+        now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+        with self._lock:
+            self._conn.executemany(
+                "UPDATE sightings SET synced_at = ? WHERE id = ?",
+                [(now, i) for i in ids],
+            )
+            self._conn.commit()
 
     def recent_days(self, limit: int = 14) -> list[str]:
         with self._lock:
@@ -123,3 +176,15 @@ class SightingStore:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+
+def _hours_between(check_in: str | None, check_out: str | None) -> float | None:
+    if not check_in or not check_out:
+        return None
+    try:
+        start = dt.datetime.fromisoformat(check_in)
+        end = dt.datetime.fromisoformat(check_out)
+    except ValueError:
+        return None
+    hours = (end - start).total_seconds() / 3600
+    return round(hours, 2) if hours >= 0 else None

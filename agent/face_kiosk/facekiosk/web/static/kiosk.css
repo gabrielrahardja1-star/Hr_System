@@ -1,0 +1,100 @@
+/* The kiosk — a fixed wall device, 1-2 m viewing distance, ~5 seconds of
+   attention, no keyboard. Dark (the room is dim), one audience, one job:
+   answer "did it get me?" The name is the largest thing on the screen —
+   the video is a self-aiming mirror, not the message. */
+
+:root {
+  --bg: #05070a; --panel: #11151c; --ink: #f5f6f8; --mut: #9aa4b2; --line: #232a35;
+  --ok: #22c55e; --bad: #ef4444; --warn: #f59e0b; --accent: #3b82f6;
+}
+* { box-sizing: border-box; }
+/* Author rules below set `display` unconditionally on .confirm/.cam-down/.retry
+   for when they're shown — without this, that unconditionally beats the UA
+   stylesheet's [hidden]{display:none}, since author origin always wins over
+   user-agent origin regardless of selector specificity. Without it the empty,
+   opaque, fullscreen .confirm overlay was visible from first paint. */
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); overflow: hidden;
+  font: 16px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-user-select: none; user-select: none; }
+
+.kiosk { position: relative; height: 100vh; height: 100dvh; }
+
+/* The camera gets the whole screen; the readout and buttons float on top of it
+   rather than taking a slice away. `contain` (not cover) so the person always
+   sees the entire frame the detector is working from — a cropped preview means
+   your face can leave the picture while still being tracked, which is a
+   confusing thing for a wall device to do. */
+.kiosk-cam { position: absolute; inset: 0; background: #000; }
+.kiosk-cam .stream { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+
+/* Deliberately low-key: a device-select control, not something a person needs
+   to look at, so it stays out of the way of the readout that actually matters.
+   z-index matters here: .cam-down is inset:0 over the same box and comes later
+   in the DOM, so without this the picker went unclickable — silently, with no
+   visual sign — for every second the camera reported down, which is exactly
+   when someone would be trying to switch to a working one. */
+.cam-picker { position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; gap: 6px;
+  background: rgba(5, 7, 10, .55); backdrop-filter: blur(4px); padding: 5px; border-radius: 10px; }
+.cam-picker select { font: 12px inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid var(--line);
+  background: rgba(17, 21, 28, .9); color: var(--mut); max-width: 38vw; }
+.cam-picker button { min-width: 34px; min-height: 34px; padding: 0; border-radius: 7px; border: 1px solid var(--line);
+  background: rgba(17, 21, 28, .9); color: var(--mut); font-size: 15px; cursor: pointer; }
+.cam-picker select:focus-visible, .cam-picker button:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.cam-down { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 8px; background: rgba(5, 7, 10, .92); text-align: center; padding: 24px; }
+.cam-down p { margin: 0; font-size: clamp(24px, 5vw, 40px); font-weight: 800; color: var(--bad); }
+.cam-down p.sub { font-size: clamp(14px, 2.4vw, 20px); font-weight: 500; color: var(--mut); }
+
+.kiosk-panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+  padding: clamp(40px, 8vh, 90px) clamp(16px, 4vw, 48px) 6px; text-align: center;
+  background: linear-gradient(to top, rgba(5, 7, 10, .93) 55%, rgba(5, 7, 10, 0)); }
+.readout .name { margin: 0; font-size: clamp(34px, 7vw, 72px); font-weight: 800; line-height: 1.05;
+  transition: color .2s ease; }
+.readout .sub { margin: 8px 0 0; font-size: clamp(15px, 2.4vw, 22px); color: var(--mut); min-height: 1.4em; }
+
+[data-state="wait"] .name    { color: var(--warn); }
+[data-state="ready"] .name   { color: var(--ok); }
+[data-state="done"] .name    { color: var(--accent); }
+[data-state="failed"] .name  { color: var(--bad); }
+
+.kiosk-actions { display: grid; grid-template-columns: 1fr; gap: 10px; max-width: 640px; margin: 16px auto 26px; }
+.stamp { font: 800 clamp(20px, 3.4vw, 30px)/1 inherit; padding: clamp(18px, 3vw, 26px) 0;
+  border-radius: 18px; border: 0; cursor: pointer; color: #fff; opacity: 0; pointer-events: none;
+  transition: opacity .2s ease; }
+[data-state="ready"] .stamp.primary { opacity: 1; pointer-events: auto; background: var(--ok); }
+[data-state="ready"] .stamp.secondary { opacity: .6; pointer-events: auto; background: var(--panel);
+  border: 1px solid var(--line); font-size: clamp(14px, 2vw, 18px); padding: 14px 0; font-weight: 700; }
+.stamp:disabled { pointer-events: none; }
+.stamp:not(:disabled):active { transform: translateY(1px); }
+.stamp:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+
+.retry { display: block; margin: 16px auto 0; font: 700 18px/1 inherit; padding: 14px 30px;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+.retry:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+/* A card over the video, not a takeover of it. It still carries the three
+   things a payroll event has to show — who, which way, what time — but it
+   gets out of the way quickly so the next person can step up. */
+.confirm { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 22px 44px; border-radius: 18px; text-align: center;
+  background: rgba(10, 14, 20, .93); border: 1px solid var(--line);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .55); backdrop-filter: blur(8px);
+  animation: confirm-in .18s ease-out; }
+@keyframes confirm-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(.94); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+.confirm-name { margin: 0; font-size: clamp(24px, 3.6vw, 38px); font-weight: 800; }
+.confirm-dir { margin: 0; font-size: clamp(13px, 1.6vw, 17px); font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ok); }
+.confirm-dir.out { color: var(--accent); }
+.confirm-time { margin: 2px 0 0; font-size: clamp(34px, 5vw, 52px); font-weight: 800;
+  font-variant-numeric: tabular-nums; }
+
+.privacy { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; margin: 0;
+  padding: 6px 16px calc(8px + env(safe-area-inset-bottom));
+  text-align: center; font-size: 12px; color: var(--mut); }
+
+@media (max-width: 480px) { .kiosk-actions { max-width: 100%; } }

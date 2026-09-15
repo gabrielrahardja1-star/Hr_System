@@ -8,13 +8,30 @@ to adjust `match_cosine` and `detect_score` during the on-site pass.
 from __future__ import annotations
 
 import os
+import platform
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+IS_WINDOWS = platform.system() == "Windows"
 
 PKG_DIR = Path(__file__).resolve().parent
 KIOSK_DIR = PKG_DIR.parent                 # agent/face_kiosk/
 MODELS_DIR = KIOSK_DIR / "models"
-DATA_DIR = KIOSK_DIR / "data"              # gallery + key + event log (gitignored)
+
+# A vendored, static ffmpeg (fetch_ffmpeg.py) so the built exe needs no
+# separate ffmpeg install on the target machine. Read-only bundled resource —
+# resolves correctly under PyInstaller automatically, same as MODELS_DIR.
+VENDOR_DIR = KIOSK_DIR / "vendor"
+FFMPEG_VENDORED = VENDOR_DIR / ("ffmpeg.exe" if IS_WINDOWS else "ffmpeg")
+
+# Under a PyInstaller onefile build, KIOSK_DIR resolves inside the per-launch
+# extraction temp dir — writing the gallery/db/key there would silently lose
+# everything on the next run. Redirect writable state to sit next to the
+# built executable instead; read-only bundled files (models, templates) are
+# fine to resolve from KIOSK_DIR as normal.
+FROZEN = bool(getattr(sys, "frozen", False))
+DATA_DIR = (Path(sys.executable).resolve().parent / "data") if FROZEN else (KIOSK_DIR / "data")
 
 YUNET_PATH = MODELS_DIR / "face_detection_yunet_2023mar.onnx"
 SFACE_PATH = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
@@ -25,6 +42,14 @@ EVENT_LOG = DATA_DIR / "events.jsonl"      # one JSON object per recognition
 
 # Identifies which component wrote an event — carried through to the punch later.
 SOURCE_TAG = "face-kiosk-proto"
+
+# --- HQ sync (Phase 2) --------------------------------------------------- #
+# Biometric data (the gallery above) never leaves this device — only sighting
+# events (uid, timestamp, direction) sync out, and only when the Sync button
+# is pressed.
+HQ_BASE_URL = os.environ.get("FACEKIOSK_HQ_URL", "http://localhost:8000")
+HQ_API_KEY = os.environ.get("FACEKIOSK_HQ_API_KEY", "")
+DEVICE_ID = os.environ.get("FACEKIOSK_DEVICE_ID", "FACE-KIOSK-01")
 
 
 @dataclass(frozen=True)
@@ -56,7 +81,14 @@ class Thresholds:
     liveness_yaw_delta: float = 0.10     # nose-vs-eyeline shift (÷ face width) that counts as a turn
     liveness_return_frac: float = 0.4    # must reverse at least this fraction of the turn
     liveness_timeout_s: float = 8.0
-    liveness_retries: int = 3            # re-arm the challenge this many times before giving up
+    liveness_retries: int = 2            # re-arm the challenge this many times before giving up
+
+    # --- Terminal-state dwell times (kiosk UI) ------------------------------ #
+    # How long "Didn't catch that" / "Not recognised" stays on screen before the
+    # track resets and tries again on its own. A visible dead end beats a silent one.
+    liveness_fail_hold_s: float = 4.0
+    unrecognized_hold_s: float = 4.0
+    unrecognized_vote_frames: int = 15   # frames of no-match votes before declaring a stranger
 
 
 T = Thresholds()
