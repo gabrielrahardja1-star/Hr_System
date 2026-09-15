@@ -1,0 +1,43 @@
+name: Face kiosk — Windows build
+
+on:
+  push:
+    paths:
+      - "agent/face_kiosk/**"
+      - ".github/workflows/facekiosk-windows-build.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: agent/face_kiosk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Fetch models + ffmpeg
+        run: |
+          python -m facekiosk.fetch_models
+          python -m facekiosk.fetch_ffmpeg
+
+      - name: Camera-free pipeline sanity check
+        run: python -m facekiosk.selftest
+
+      - name: Build
+        run: pyinstaller facekiosk.spec
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: facekiosk-windows
+          path: agent/face_kiosk/dist/facekiosk.exe
+          if-no-files-found: error
