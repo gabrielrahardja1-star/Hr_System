@@ -1,0 +1,23 @@
+## Local dev Postgres. Backend/tests still run on the host (see README) —
+## this just replaces "no external services" SQLite with a real Postgres to
+## develop and test against. Port 5434 to avoid colliding with a Homebrew
+## postgresql@14 on 5432 or another project's compose Postgres on 5433.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: hr_system
+      POSTGRES_PASSWORD: hr_system
+      POSTGRES_DB: hr_system
+    ports:
+      - "5434:5432"
+    volumes:
+      - hr_system_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hr_system -d hr_system"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  hr_system_pgdata:

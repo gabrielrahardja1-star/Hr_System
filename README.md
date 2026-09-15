@@ -9,7 +9,7 @@ Check In / Check Out / Attendance Code values and flags what a human must fix.
 SITE (offline-tolerant)                       HQ
 ┌──────────────────────────┐                 ┌────────────────────────────┐
 │ Deli E-13750 ──eth──▶ PC │                 │ management system          │
-│   agent (Phase 4)        │   POST batch    │  FastAPI + SQLite           │
+│   agent (Phase 4)        │   POST batch    │  FastAPI + Postgres         │
 │    ├ pyzk poll           │ ─ ─ ─ ─ ─ ─ ─ ▶ │  /api/v1/punches            │
 │    └ local spool ◀ retry │  when link up   │  web UI :8000               │
 └──────────────────────────┘                 └────────────┬───────────────┘
@@ -83,7 +83,18 @@ the Payroll Export screen is still a stub marked "soon".
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env          # defaults work as-is for local dev
+cp .env.example .env          # adjust DATABASE_URL if you're not using docker compose
+
+docker compose up -d postgres      # local Postgres 16 on :5434
+alembic upgrade head               # apply the schema
+```
+
+No Docker? A Homebrew `postgresql@14` (or any local Postgres) works too — create
+a role/db yourself and point `DATABASE_URL` at it:
+```bash
+psql -d postgres -c "CREATE ROLE hr_system WITH LOGIN PASSWORD 'hr_system' CREATEDB;"
+psql -d postgres -c "CREATE DATABASE hr_system OWNER hr_system;"
+DATABASE_URL=postgresql+psycopg://hr_system:hr_system@localhost:5432/hr_system alembic upgrade head
 ```
 
 > **macOS note (this dev machine):** the Homebrew Python 3.12–3.14 builds on this
@@ -186,11 +197,35 @@ week-off.
 
 ## Tests
 
+Needs a real Postgres (`TEST_DATABASE_URL`, separate db from dev — each test
+runs in its own rolled-back transaction, nothing persists):
 ```bash
-pytest -q
+psql -d postgres -c "CREATE DATABASE hr_system_test OWNER hr_system;"   # once
+TEST_DATABASE_URL=postgresql+psycopg://hr_system:hr_system@localhost:5432/hr_system_test \
+    pytest -q
 ```
 Covers the coding fixture table (night shift, midnight cross, single punch,
 duplicate scans, out-of-order arrival, zero punches, >ceiling), the
 "MP hours are null never zero" guarantee, recompute idempotency, ingest
 idempotency (including partial-overlap batches), and the export gate
 (blocked → resolve → succeeds).
+
+---
+
+## Deploy (VPS, Docker)
+
+```bash
+# local
+git add -A && git commit -m "..." && git push
+
+# server — /opt/hr_system, separate compose project from any other app on the box
+ssh <user>@<vps-host>
+cd /opt/hr_system
+git pull
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml exec backend alembic upgrade head   # if schema changed
+```
+
+`.env` on the server is not committed — `cp .env.example .env` and fill in a
+real `DATABASE_URL`/`POSTGRES_PASSWORD` pair and `HR_INGEST_API_KEYS` (not
+`dev-local-key`). Logs: `docker compose -f docker-compose.prod.yml logs -f backend`.

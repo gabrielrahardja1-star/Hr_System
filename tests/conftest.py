@@ -1,40 +1,56 @@
 """Test fixtures.
 
-Each test gets a fresh temp SQLite database and clean config caches. Env vars
-are set before any `server.*` import so config picks them up.
+Needs a real Postgres (`TEST_DATABASE_URL`, default points at the Homebrew
+postgresql@14 instance — `docker compose up -d postgres` + a `hr_system_test`
+db works too). One engine/schema for the whole run; each test gets its own
+transaction that's rolled back at teardown (SQLAlchemy 2.0 "join savepoint"
+pattern — `session.commit()` inside app code like `ingest_punches` nests as a
+savepoint instead of actually persisting), so tests stay isolated without
+recreating all tables per test the way the old per-test SQLite file did.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import importlib
 import os
-from pathlib import Path
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+os.environ.setdefault(
+    "DATABASE_URL",
+    os.environ.get(
+        "TEST_DATABASE_URL",
+        "postgresql+psycopg://hr_system:hr_system@localhost:5432/hr_system_test",
+    ),
+)
+os.environ.setdefault("HR_TIMEZONE", "Asia/Jakarta")
+os.environ.setdefault("HR_INGEST_API_KEYS", "test-key")
+os.environ.setdefault("HR_SHORT_SHIFT_HOURS", "6.0")
+os.environ.setdefault("HR_LONG_SHIFT_HOURS", "16.0")
+os.environ.setdefault("HR_CHATTER_WINDOW_SECONDS", "90")
+
+
+@pytest.fixture(scope="session")
+def _engine():
+    from server.models import Base
+
+    engine = create_engine(os.environ["DATABASE_URL"], future=True)
+    Base.metadata.create_all(bind=engine)
+    yield engine
+    engine.dispose()
 
 
 @pytest.fixture()
-def env(tmp_path, monkeypatch):
-    monkeypatch.setenv("HR_DB_PATH", str(tmp_path / "test.db"))
+def env(tmp_path, monkeypatch, _engine):
     monkeypatch.setenv("HR_EXPORT_DIR", str(tmp_path / "exports"))
-    monkeypatch.setenv("HR_TIMEZONE", "Asia/Jakarta")
-    monkeypatch.setenv("HR_INGEST_API_KEYS", "test-key")
-    monkeypatch.setenv("HR_SHORT_SHIFT_HOURS", "6.0")
-    monkeypatch.setenv("HR_LONG_SHIFT_HOURS", "16.0")
-    monkeypatch.setenv("HR_CHATTER_WINDOW_SECONDS", "90")
 
     import server.config as config
 
     config.reset_caches()
 
-    # db module binds an engine at import time — rebuild it against the temp path.
     import server.db as db
-
-    importlib.reload(db)
-    db.init_db()
 
     yield db
 
@@ -42,12 +58,20 @@ def env(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def session(env):
-    s = env.SessionLocal()
+def session(env, _engine):
+    connection = _engine.connect()
+    trans = connection.begin()
+    TestSession = sessionmaker(
+        bind=connection, autoflush=False, expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+    s = TestSession()
     try:
         yield s
     finally:
         s.close()
+        trans.rollback()
+        connection.close()
 
 
 @pytest.fixture()

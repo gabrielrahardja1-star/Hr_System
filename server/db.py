@@ -1,8 +1,9 @@
-"""SQLAlchemy engine/session wiring for the local SQLite database.
+"""SQLAlchemy engine/session wiring for the Postgres database.
 
-SQLite is used deliberately: the HQ server has a single writer (the ingest
-endpoint plus HR edits) and the whole point is that it keeps working with no
-external services. WAL mode lets the web UI read while a sync is being written.
+`pool_pre_ping` guards against the pooled connections going stale under a
+long-lived uvicorn process. Schema changes go through Alembic (`alembic/`);
+`init_db()` below is only a convenience for tests and a from-scratch local
+bootstrap, not the production migration path.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from server.config import get_settings
@@ -18,22 +19,7 @@ from server.config import get_settings
 
 def _make_engine():
     settings = get_settings()
-    settings.db_path.parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(
-        settings.db_url,
-        future=True,
-        connect_args={"check_same_thread": False},
-    )
-
-    @event.listens_for(engine, "connect")
-    def _set_sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
-        cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA journal_mode=WAL")
-        cur.execute("PRAGMA foreign_keys=ON")
-        cur.execute("PRAGMA busy_timeout=5000")
-        cur.close()
-
-    return engine
+    return create_engine(settings.database_url, future=True, pool_pre_ping=True)
 
 
 engine = _make_engine()
@@ -41,7 +27,8 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 
 
 def init_db() -> None:
-    """Create every table. Safe to call repeatedly."""
+    """Create every table. Safe to call repeatedly. Tests/local bootstrap only —
+    production schema changes go through `alembic upgrade head`."""
     from server import models  # noqa: F401  (registers mappers)
 
     models.Base.metadata.create_all(bind=engine)

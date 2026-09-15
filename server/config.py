@@ -40,7 +40,7 @@ def _env_int(name: str, default: int) -> int:
 
 @dataclass(frozen=True)
 class Settings:
-    db_path: Path
+    database_url: str
     timezone: ZoneInfo
     timezone_name: str
     export_dir: Path
@@ -48,10 +48,6 @@ class Settings:
     short_shift_hours: float
     long_shift_hours: float
     chatter_window_seconds: int
-
-    @property
-    def db_url(self) -> str:
-        return f"sqlite:///{self.db_path}"
 
 
 @functools.lru_cache(maxsize=1)
@@ -62,14 +58,13 @@ def get_settings() -> Settings:
         for k in _env("HR_INGEST_API_KEYS", "dev-local-key").split(",")
         if k.strip()
     }
-    db_path = Path(_env("HR_DB_PATH", "data/hr.db"))
-    if not db_path.is_absolute():
-        db_path = REPO_ROOT / db_path
     export_dir = Path(_env("HR_EXPORT_DIR", "data/exports"))
     if not export_dir.is_absolute():
         export_dir = REPO_ROOT / export_dir
     return Settings(
-        db_path=db_path,
+        database_url=_env(
+            "DATABASE_URL", "postgresql+psycopg://hr_system:hr_system@localhost:5434/hr_system"
+        ),
         timezone=ZoneInfo(tz_name),
         timezone_name=tz_name,
         export_dir=export_dir,

@@ -90,7 +90,7 @@ class Employee(Base):
     name: Mapped[str] = mapped_column(String(128))
     department: Mapped[str] = mapped_column(String(64), index=True)
     status: Mapped[EmployeeStatus] = mapped_column(
-        Enum(EmployeeStatus), default=EmployeeStatus.active
+        Enum(EmployeeStatus, native_enum=False), default=EmployeeStatus.active
     )
     shift_key: Mapped[str] = mapped_column(String(16))
     roster_pattern: Mapped[str] = mapped_column(String(16))
@@ -134,7 +134,9 @@ class Punch(Base):
     punched_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), index=True)
     raw_punch_type: Mapped[int | None] = mapped_column(Integer, nullable=True)
     raw_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    source: Mapped[PunchSource] = mapped_column(Enum(PunchSource), default=PunchSource.device)
+    source: Mapped[PunchSource] = mapped_column(
+        Enum(PunchSource, native_enum=False), default=PunchSource.device
+    )
     ingest_batch_id: Mapped[int | None] = mapped_column(
         ForeignKey("ingest_batches.id"), nullable=True
     )
@@ -187,7 +189,9 @@ class DayRecord(Base):
     worked_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     code: Mapped[str] = mapped_column(String(4), index=True)  # P/A/MP/SS/WO/H
-    state: Mapped[DayState] = mapped_column(Enum(DayState), default=DayState.open, index=True)
+    state: Mapped[DayState] = mapped_column(
+        Enum(DayState, native_enum=False), default=DayState.open, index=True
+    )
     has_correction: Mapped[bool] = mapped_column(Boolean, default=False)
 
     computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -248,9 +252,9 @@ class Exception_(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     day_record_id: Mapped[int] = mapped_column(ForeignKey("day_records.id"), index=True)
-    kind: Mapped[ExceptionKind] = mapped_column(Enum(ExceptionKind), index=True)
+    kind: Mapped[ExceptionKind] = mapped_column(Enum(ExceptionKind, native_enum=False), index=True)
     state: Mapped[ExceptionState] = mapped_column(
-        Enum(ExceptionState), default=ExceptionState.open, index=True
+        Enum(ExceptionState, native_enum=False), default=ExceptionState.open, index=True
     )
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     opened_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -278,7 +282,9 @@ class ExportRun(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     period: Mapped[str] = mapped_column(String(7), index=True)  # YYYY-MM
     kind: Mapped[str] = mapped_column(String(8))                # draft | final
-    status: Mapped[ExportStatus] = mapped_column(Enum(ExportStatus), default=ExportStatus.draft)
+    status: Mapped[ExportStatus] = mapped_column(
+        Enum(ExportStatus, native_enum=False), default=ExportStatus.draft
+    )
     generated_by: Mapped[str] = mapped_column(String(64))
     generated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     record_count: Mapped[int] = mapped_column(Integer, default=0)

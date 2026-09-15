@@ -5,10 +5,18 @@ export DYLD_LIBRARY_PATH := /opt/homebrew/opt/expat/lib
 
 PY := .venv/bin/python
 
-.PHONY: install test serve seed mock demo clean
+.PHONY: install db-up migrate test serve seed mock demo clean
 
 install:
 	python3 -m venv .venv && $(PY) -m pip install -r requirements.txt
+
+# Local Postgres via docker compose. No Docker on this machine? Use a
+# Homebrew postgresql@14 role/db instead (see README) and skip this target.
+db-up:
+	docker compose up -d postgres
+
+migrate:
+	$(PY) -m alembic upgrade head
 
 test:
 	$(PY) -m pytest
@@ -31,6 +39,5 @@ demo: seed mock
 	-$(PY) -m tools.manage export    --period 2026-08 --kind final
 
 clean:
-	rm -f data/*.db data/*.db-wal data/*.db-shm
 	rm -rf data/exports __pycache__ .pytest_cache
 	find . -name __pycache__ -type d -exec rm -rf {} +
