@@ -234,10 +234,15 @@ def _run(box: Path) -> int:
     # --- dshow device parsing (Windows camera discovery) ------------ #
     from .camera import _parse_dshow_devices
 
+    # Verbatim from ffmpeg 9.0.1 on Windows 11. Note the log context is
+    # "in#0", not "dshow" — pinning the prefix to "dshow" hid both cameras.
     _dshow_new = (
-        '[dshow @ 0001] "Integrated Camera" (video)\n'
-        '[dshow @ 0001]   Alternative name "@device_pnp_\\\\?\\usb#vid_0bda"\n'
-        '[dshow @ 0001] "Microphone Array (Realtek)" (audio)\n'
+        '[in#0 @ 000001d2] "USB2.0 camera" (video)\n'
+        '[in#0 @ 000001d2]   Alternative name "@device_pnp_\\\\?\\usb#vid_0bda&pid_5830"\n'
+        '[in#0 @ 000001d2] "Logi C615 HD WebCam" (video)\n'
+        '[in#0 @ 000001d2]   Alternative name "@device_pnp_\\\\?\\usb#vid_046d&pid_082c"\n'
+        '[in#0 @ 000001d2] "Microphone (Logi C615 HD WebCam)" (audio)\n'
+        '[in#0 @ 000001d2] "Microphone Array (2- Realtek(R) Audio)" (audio)\n'
     )
     _dshow_old = (
         "[dshow @ 0001] DirectShow video devices (some may be both video and audio devices)\n"
@@ -247,8 +252,8 @@ def _run(box: Path) -> int:
         '[dshow @ 0001]  "Microphone Array (Realtek)"\n'
     )
     check(
-        "dshow parser reads ffmpeg >= 5 output (name annotated '(video)')",
-        _parse_dshow_devices(_dshow_new) == ["Integrated Camera"],
+        "dshow parser reads ffmpeg 9 output, cameras only, mics excluded",
+        _parse_dshow_devices(_dshow_new) == ["USB2.0 camera", "Logi C615 HD WebCam"],
         str(_parse_dshow_devices(_dshow_new)),
     )
     check(

@@ -64,13 +64,15 @@ FFMPEG = _resolve_ffmpeg()
 # avfoundation: "[AVFoundation indev @ 0x...] [0] HD Webcam C615"
 _DEVICE_LINE = re.compile(r"\]\s*\[(\d+)\]\s+(.+?)\s*$")
 
-# dshow: `[dshow @ 0x...]  "Integrated Camera"` (video devices section only;
-# an indented `Alternative name "..."` line follows each device — skip those).
-# ffmpeg >= 5 annotates the kind after the name: `"Integrated Camera" (video)`.
-# Without the optional group the name never matches on a current ffmpeg and the
-# kiosk reports "no cameras found" on a machine that has one.
+# A device line, e.g. `[dshow @ 0x...] "Integrated Camera" (video)`. An indented
+# `Alternative name "..."` line follows each device — skipped by the caller.
+#
+# The log-context prefix is deliberately not pinned to "dshow": ffmpeg 9 emits
+# `[in#0 @ 0x...]` instead, and requiring "dshow" made every device line fail to
+# match, so a laptop with two working cameras reported none. The kind annotation
+# is optional because ffmpeg < 5 omits it and groups devices under headers.
 _DSHOW_DEVICE_LINE = re.compile(
-    r'^\[dshow[^\]]*\]\s+"([^"]+)"(?:\s+\((?P<kind>video|audio)\))?\s*$'
+    r'^\[[^\]]+\]\s+"([^"]+)"(?:\s+\((?P<kind>video|audio)\))?\s*$'
 )
 
 
