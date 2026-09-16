@@ -264,6 +264,26 @@ def _run(box: Path) -> int:
         str(_parse_dshow_devices(_dshow_old)),
     )
 
+    # --- the chosen camera survives a restart ----------------------- #
+    from . import config as _cfg
+
+    _orig_settings = _cfg.SETTINGS_PATH
+    _cfg.SETTINGS_PATH = box / "kiosk_settings.json"
+    try:
+        check("no settings file yet reads as empty", _cfg.load_settings() == {})
+        _cfg.save_setting("camera", "Logi C615 HD WebCam")
+        check(
+            "the picked camera is written and read back",
+            _cfg.load_settings().get("camera") == "Logi C615 HD WebCam",
+            str(_cfg.load_settings()),
+        )
+        _cfg.save_setting("camera", "USB2.0 camera")
+        check("re-picking overwrites rather than appends",
+              _cfg.load_settings() == {"camera": "USB2.0 camera"},
+              str(_cfg.load_settings()))
+    finally:
+        _cfg.SETTINGS_PATH = _orig_settings
+
     # --- frame pipe reading, with no camera present ----------------- #
     # This runs on the Windows CI runner, which has no camera. It stands in a
     # plain subprocess for ffmpeg so the real pipe-reading path is exercised

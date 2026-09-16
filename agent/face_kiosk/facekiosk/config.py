@@ -77,6 +77,36 @@ HQ_BASE_URL = _hq_setting("url", "FACEKIOSK_HQ_URL", "http://localhost:8000").rs
 HQ_API_KEY = _hq_setting("api_key", "FACEKIOSK_HQ_API_KEY", "")
 DEVICE_ID = _hq_setting("device_id", "FACEKIOSK_DEVICE_ID", "FACE-KIOSK-01")
 
+# Written by the app, unlike hq.json which a human edits. Keeps the chosen
+# camera across restarts — otherwise a reboot silently falls back to whichever
+# device enumerates first, which on a laptop is the built-in lid camera rather
+# than the one aimed at the queue.
+SETTINGS_PATH = DATA_DIR / "kiosk_settings.json"
+
+
+def load_settings() -> dict:
+    try:
+        loaded = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def save_setting(key: str, value) -> None:
+    """Best effort — a kiosk must keep running even if its settings file can't
+    be written."""
+    current = load_settings()
+    if current.get(key) == value:
+        return
+    current[key] = value
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = SETTINGS_PATH.with_name(SETTINGS_PATH.name + ".tmp")
+        tmp.write_text(json.dumps(current, indent=2), encoding="utf-8")
+        tmp.replace(SETTINGS_PATH)
+    except OSError:
+        pass
+
 
 @dataclass(frozen=True)
 class Thresholds:

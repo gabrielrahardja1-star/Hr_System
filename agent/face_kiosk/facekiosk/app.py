@@ -42,7 +42,16 @@ from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
 from .camera import FFmpegCamera, list_cameras, open_camera, robust_read
-from .config import DATA_DIR, DEVICE_ID, HQ_API_KEY, HQ_BASE_URL, HQ_CONFIG_PATH, T
+from .config import (
+    DATA_DIR,
+    DEVICE_ID,
+    HQ_API_KEY,
+    HQ_BASE_URL,
+    HQ_CONFIG_PATH,
+    T,
+    load_settings,
+    save_setting,
+)
 from .gallery import Gallery
 from .run import Kiosk
 from .store import SightingStore
@@ -241,6 +250,8 @@ class CameraWorker(threading.Thread):
         """Ask the camera thread to switch devices, by name. Async — poll
         status()/error afterwards to see whether it took."""
         self._requested_camera = name
+        _SETTINGS.camera = name
+        save_setting("camera", name)  # survive a restart or a power cut
 
     def cameras(self) -> dict:
         """What's available to switch to, plus the one currently in use.
@@ -627,12 +638,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
 
-    _SETTINGS.camera = args.camera
+    # An explicit --camera wins; otherwise reuse whatever was last picked in
+    # the admin UI, so a restart doesn't drop back to the built-in camera.
+    _SETTINGS.camera = args.camera or str(load_settings().get("camera") or "")
     _SETTINGS.match_cosine = args.match_cosine
     _SETTINGS.liveness = args.liveness
     _SETTINGS.auto_log = args.auto_log
 
-    print(f"face kiosk on http://{args.host}:{args.port}  (camera {args.camera or 'first available'})")
+    chosen = _SETTINGS.camera or "first available"
+    print(f"face kiosk on http://{args.host}:{args.port}  (camera {chosen})")
     print(f"admin: http://{args.host}:{args.port}/admin")
     print(f"data:  {DATA_DIR}")
     print(f"sync:  {HQ_BASE_URL}  device={DEVICE_ID}  "
