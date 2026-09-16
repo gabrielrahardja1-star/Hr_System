@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}{{ t('employees.title') }}{% endblock %}
+{% block heading %}{{ t('employees.title') }}{% endblock %}
+{% block subheading %}{{ t('employees.sub') }}{% endblock %}
+{% block controls %}{% endblock %}
+
+{% macro field(label, name, value='', type='text', required=False, width='150px') %}
+<div>
+  <label style="display:block;font-size:10.5px;font-weight:700;color:#5f6875;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
+    {{ label }}{% if required %} <span style="color:#b3261e">*</span>{% endif %}
+  </label>
+  <input type="{{ type }}" name="{{ name }}" value="{{ value }}" {{ 'required' if required }}
+         style="width:{{ width }};font:inherit;font-size:12.5px">
+</div>
+{% endmacro %}
+
+{% macro shift_select(shifts, selected='') %}
+<select name="shift_key" required style="min-width:210px">
+  <option value="" disabled {{ 'selected' if not selected }}>—</option>
+  {% for s in shifts %}
+  <option value="{{ s.key }}" {{ 'selected' if s.key == selected }}>
+    {{ s.name }} · {{ s.hours }}{% if s.crosses_midnight %} ⏱{% endif %}
+  </option>
+  {% endfor %}
+</select>
+{% endmacro %}
+
+{% block content %}
+
+{% if error %}
+<div class="banner block">⚠ {{ error }}</div>
+{% endif %}
+{% if saved %}
+<div class="banner clear">✓ {{ t('employees.saved', name=saved) }}</div>
+{% endif %}
+
+{% if view.unmatched %}
+<section class="card">
+  <div class="pad" style="font-size:12.5px;font-weight:700;color:#7d4409;border-bottom:1px solid #f3d9b4;background:#fdf3e7">
+    ⚠ {{ t('employees.unmatched_title') }} — {{ view.unmatched|length }}
+  </div>
+  <div class="pad" style="font-size:11.5px;color:#5f6875;border-bottom:1px solid #eceef1">
+    {{ t('employees.unmatched_help') }}
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>{{ t('employees.device_id') }}</th>
+        <th>{{ t('employees.punch_count') }}</th>
+        <th>{{ t('employees.first_seen') }}</th>
+        <th>{{ t('employees.last_seen') }}</th>
+      </tr></thead>
+      <tbody>
+      {% for u in view.unmatched %}
+        <tr>
+          <td style="font-weight:700;color:#96500a">{{ u.device_user_id }}</td>
+          <td>{{ u.punches }}</td>
+          <td style="color:#5f6875">{{ u.first_seen }}</td>
+          <td style="color:#5f6875">{{ u.last_seen }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="card pad">
+  <div style="font-size:12.5px;font-weight:700;color:#1f2430;margin-bottom:10px">
+    {{ t('employees.add_title') }}
+  </div>
+  <form method="post" action="/employees" style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end">
+    {{ field(t('employees.device_id'), 'device_user_id', required=True, width='110px') }}
+    {{ field(t('employees.name'), 'name', required=True, width='190px') }}
+    {{ field(t('employees.emp_code'), 'emp_code', required=True, width='110px') }}
+    {{ field(t('employees.talenta_id'), 'talenta_id', width='130px') }}
+    {{ field(t('employees.department'), 'department', required=True, width='150px') }}
+    <div>
+      <label style="display:block;font-size:10.5px;font-weight:700;color:#5f6875;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
+        {{ t('employees.shift') }} <span style="color:#b3261e">*</span>
+      </label>
+      {{ shift_select(view.shifts) }}
+    </div>
+    <div>
+      <label style="display:block;font-size:10.5px;font-weight:700;color:#5f6875;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
+        {{ t('employees.roster') }}
+      </label>
+      <select name="roster_pattern" style="min-width:150px">
+        {% for r in view.rosters %}
+        <option value="{{ r }}">{{ r }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {{ field(t('employees.active_from'), 'active_from', type='date', width='150px') }}
+    <button class="btn primary" type="submit">{{ t('employees.add') }}</button>
+  </form>
+  <div style="margin-top:8px;font-size:11px;color:#8a919c">{{ t('employees.device_id_hint') }}</div>
+</section>
+
+<section class="card">
+  <div class="pad" style="font-size:12.5px;font-weight:700;color:#1f2430;border-bottom:1px solid #eceef1">
+    {{ t('employees.list_title') }} — {{ view.employees|length }}
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>{{ t('employees.device_id') }}</th>
+        <th>{{ t('employees.name') }}</th>
+        <th>{{ t('employees.emp_code') }}</th>
+        <th>{{ t('employees.talenta_id') }}</th>
+        <th>{{ t('employees.department') }}</th>
+        <th>{{ t('employees.shift') }}</th>
+        <th>{{ t('employees.roster') }}</th>
+        <th>{{ t('employees.status') }}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+      {% for e in view.employees %}
+        <tr>
+          <form method="post" action="/employees/{{ e.id }}" style="display:contents">
+            <td><input name="device_user_id" value="{{ e.device_user_id }}" required style="width:80px;font:inherit;font-size:12px"></td>
+            <td><input name="name" value="{{ e.name }}" required style="width:150px;font:inherit;font-size:12px"></td>
+            <td><input name="emp_code" value="{{ e.emp_code }}" required style="width:90px;font:inherit;font-size:12px"></td>
+            <td><input name="talenta_id" value="{{ e.talenta_id }}" style="width:110px;font:inherit;font-size:12px"></td>
+            <td><input name="department" value="{{ e.department }}" required style="width:120px;font:inherit;font-size:12px"></td>
+            <td>
+              {% if not e.shift_known %}
+              <div style="font-size:10px;color:#b3261e;font-weight:700">{{ e.shift_label }}</div>
+              {% endif %}
+              {{ shift_select(view.shifts, e.shift_key) }}
+            </td>
+            <td>
+              <select name="roster_pattern">
+                {% for r in view.rosters %}
+                <option value="{{ r }}" {{ 'selected' if r == e.roster_pattern }}>{{ r }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <select name="status">
+                {% for s in view.statuses %}
+                <option value="{{ s }}" {{ 'selected' if s == e.status }}>{{ s }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <input type="hidden" name="active_from" value="{{ e.active_from }}">
+              <input type="hidden" name="active_to" value="{{ e.active_to }}">
+              <button class="btn" type="submit">{{ t('employees.save') }}</button>
+            </td>
+          </form>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if not view.employees %}
+  <div class="pad" style="font-size:12px;color:#8a919c">{{ t('employees.empty') }}</div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -313,11 +313,16 @@ class CameraWorker(threading.Thread):
             shots = self._pending.pop(token, None)
         if not shots or len(shots) < MIN_SHOTS:
             raise HTTPException(422, f"need at least {MIN_SHOTS} shots, have {len(shots or [])}")
+        uid = emp_id.strip()
+        # The uid is what sync sends HQ as device_user_id. A minted one matches
+        # no employee there, and ingest stores punches without checking — so an
+        # unidentified enrolment loses that person's attendance silently.
+        if not uid:
+            raise HTTPException(422, "staff/badge number is required — it must match the worker's ID in HR")
         with self.gallery_lock:
-            uid = emp_id.strip() or _next_uid(self.gallery)
-            if emp_id.strip() and emp_id.strip() in self.gallery.people:
-                raise HTTPException(409, f"ID {emp_id!r} is already enrolled")
-            person = self.gallery.enroll(uid, name.strip(), shots, emp_id=emp_id.strip())
+            if uid in self.gallery.people:
+                raise HTTPException(409, f"ID {uid!r} is already enrolled")
+            person = self.gallery.enroll(uid, name.strip(), shots, emp_id=uid)
             self.gallery.save()
         return person.as_dict()
 
@@ -383,14 +388,6 @@ class CameraWorker(threading.Thread):
 
 def _new_token() -> str:
     return dt.datetime.now().strftime("%H%M%S") + "-" + str(int(time.monotonic() * 1000) % 100000)
-
-
-def _next_uid(gallery: Gallery) -> str:
-    n = 0
-    for uid in gallery.people:
-        if uid.startswith("K") and uid[1:].isdigit():
-            n = max(n, int(uid[1:]))
-    return f"K{n + 1:04d}"
 
 
 # --------------------------------------------------------------------------- #

@@ -51,13 +51,18 @@ class UTCDateTime(TypeDecorator):
         if value is None:
             return None
         if value.tzinfo is None:
-            return value  # assume already UTC
-        return value.astimezone(dt.timezone.utc).replace(tzinfo=None)
+            return value.replace(tzinfo=dt.timezone.utc)  # assume already UTC
+        return value.astimezone(dt.timezone.utc)
 
     def process_result_value(self, value, dialect):
         if value is None:
             return None
-        return value.replace(tzinfo=dt.timezone.utc)
+        # Postgres hands back an aware value in the session's timezone, which is
+        # UTC in the containers but not on every dev box. Convert rather than
+        # overwrite the offset — replace() would silently shift the instant.
+        if value.tzinfo is None:
+            return value.replace(tzinfo=dt.timezone.utc)
+        return value.astimezone(dt.timezone.utc)
 
 
 # Name kept as DateTime so the column declarations below read normally.

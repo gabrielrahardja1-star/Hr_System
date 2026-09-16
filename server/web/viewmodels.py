@@ -10,7 +10,7 @@ import datetime as dt
 from calendar import monthrange
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import extract, func, select
 from sqlalchemy.orm import Session
 
 from server.config import get_holidays, get_settings, get_shift_config, get_wage_mapping
@@ -24,6 +24,7 @@ from server.models import (
     ExceptionState,
     ExportRun,
     Holiday,
+    Punch,
 )
 
 DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -58,12 +59,16 @@ def period_bounds(period: str) -> tuple[dt.date, dt.date, int]:
 
 
 def available_periods(session: Session) -> list[dict]:
+    # extract() rather than strftime(): the latter is SQLite-only and does not
+    # exist in Postgres, which this runs on in production.
+    year = extract("year", DayRecord.work_date)
+    month = extract("month", DayRecord.work_date)
     rows = session.execute(
-        select(func.strftime("%Y-%m", DayRecord.work_date))
-        .group_by(func.strftime("%Y-%m", DayRecord.work_date))
-        .order_by(func.strftime("%Y-%m", DayRecord.work_date).desc())
-    ).scalars().all()
-    periods = [p for p in rows if p]
+        select(year.label("y"), month.label("m"))
+        .group_by(year, month)
+        .order_by(year.desc(), month.desc())
+    ).all()
+    periods = [f"{int(r.y):04d}-{int(r.m):02d}" for r in rows if r.y and r.m]
     if not periods:
         periods = [dt.date.today().strftime("%Y-%m")]
     out = []
@@ -168,6 +173,86 @@ def employee_options(session: Session) -> list[dict]:
         }
         for e in rows
     ]
+
+
+def shift_options() -> list[dict]:
+    """Every shift declared in config/shifts.yaml, for the employee form."""
+    cfg = get_shift_config()
+    return [
+        {
+            "key": s.key,
+            "name": s.name,
+            "hours": f"{s.start:%H:%M}–{s.end:%H:%M}",
+            "crosses_midnight": s.crosses_midnight,
+        }
+        for s in sorted(cfg.shifts.values(), key=lambda s: s.key)
+    ]
+
+
+def roster_options() -> list[str]:
+    return sorted(get_shift_config().roster_patterns)
+
+
+def unmatched_device_ids(session: Session) -> list[dict]:
+    """Device IDs that have sent punches but match no employee.
+
+    The kiosk stamps a punch with whatever ID it was enrolled under, and ingest
+    stores it without checking. A typo'd or auto-generated ID therefore lands
+    here rather than on anyone's timesheet — silently, until this surfaces it.
+    """
+    known = select(Employee.device_user_id)
+    rows = session.execute(
+        select(
+            Punch.device_user_id,
+            func.count(Punch.id).label("punches"),
+            func.min(Punch.punched_at).label("first_seen"),
+            func.max(Punch.punched_at).label("last_seen"),
+        )
+        .where(Punch.device_user_id.not_in(known))
+        .group_by(Punch.device_user_id)
+        .order_by(func.max(Punch.punched_at).desc())
+    ).all()
+    tz = get_settings().timezone
+    return [
+        {
+            "device_user_id": r.device_user_id,
+            "punches": r.punches,
+            "first_seen": r.first_seen.astimezone(tz).strftime("%d %b %H:%M"),
+            "last_seen": r.last_seen.astimezone(tz).strftime("%d %b %H:%M"),
+        }
+        for r in rows
+    ]
+
+
+def employee_admin_view(session: Session) -> dict:
+    rows = session.execute(select(Employee).order_by(Employee.name)).scalars().all()
+    shifts = {s["key"]: s for s in shift_options()}
+    return {
+        "employees": [
+            {
+                "id": e.id,
+                "name": e.name,
+                "device_user_id": e.device_user_id,
+                "emp_code": e.emp_code,
+                "talenta_id": e.talenta_id or "",
+                "department": e.department,
+                "status": e.status.value,
+                "shift_key": e.shift_key,
+                "shift_label": shifts[e.shift_key]["name"]
+                if e.shift_key in shifts
+                else f"{e.shift_key} (unknown)",
+                "shift_known": e.shift_key in shifts,
+                "roster_pattern": e.roster_pattern,
+                "active_from": e.active_from.isoformat() if e.active_from else "",
+                "active_to": e.active_to.isoformat() if e.active_to else "",
+            }
+            for e in rows
+        ],
+        "shifts": shift_options(),
+        "rosters": roster_options(),
+        "statuses": [s.value for s in EmployeeStatus],
+        "unmatched": unmatched_device_ids(session),
+    }
 
 
 @dataclass

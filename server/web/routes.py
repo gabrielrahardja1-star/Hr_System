@@ -13,13 +13,13 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from server.config import get_settings
+from server.config import get_settings, get_shift_config
 from server.core.exceptions import resolve_exception
 from server.core.export import run_export
 from server.core.recompute import recompute_employee
 from server.core.talenta_export import enrich_skeleton
 from server.db import get_session
-from server.models import Correction, DayRecord, Employee
+from server.models import Correction, DayRecord, Employee, EmployeeStatus
 from server.web import viewmodels as vm
 from server.web.i18n import AVAILABLE, DEFAULT_LANG, translator_for
 
@@ -268,6 +268,167 @@ def payroll_export_download(filename: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=filename,
     )
+
+
+@router.get("/employees", response_class=HTMLResponse)
+def employees(
+    request: Request,
+    period: str | None = None,
+    error: str | None = None,
+    saved: str | None = None,
+    session: Session = Depends(get_session),
+):
+    period = _current_period(session, period)
+    return render(
+        request,
+        "employees.html",
+        active_nav="employees",
+        period=period,
+        periods=vm.available_periods(session),
+        view=vm.employee_admin_view(session),
+        error=error,
+        saved=saved,
+        open_exc_badge=vm.exceptions_view(session, period)["open_total"],
+    )
+
+
+def _employee_form(
+    device_user_id: str,
+    name: str,
+    emp_code: str,
+    talenta_id: str,
+    department: str,
+    shift_key: str,
+    roster_pattern: str,
+    status: str,
+    active_from: str,
+    active_to: str,
+) -> dict:
+    """Validate and normalise the employee form. Raises ValueError on bad input."""
+    cfg = get_shift_config()
+    fields = {
+        "device_user_id": device_user_id.strip(),
+        "name": name.strip(),
+        "emp_code": emp_code.strip(),
+        "department": department.strip(),
+    }
+    for label, value in fields.items():
+        if not value:
+            raise ValueError(f"{label.replace('_', ' ')} is required")
+    if shift_key not in cfg.shifts:
+        raise ValueError(f"Unknown shift {shift_key!r}. Defined: {sorted(cfg.shifts)}")
+    if roster_pattern not in cfg.roster_patterns:
+        raise ValueError(f"Unknown roster {roster_pattern!r}")
+    try:
+        status_enum = EmployeeStatus(status)
+    except ValueError:
+        raise ValueError(f"Unknown status {status!r}") from None
+
+    def _date(value: str) -> dt.date | None:
+        value = value.strip()
+        return dt.date.fromisoformat(value) if value else None
+
+    return {
+        **fields,
+        "talenta_id": talenta_id.strip() or None,
+        "shift_key": shift_key,
+        "roster_pattern": roster_pattern,
+        "status": status_enum,
+        "active_from": _date(active_from),
+        "active_to": _date(active_to),
+    }
+
+
+@router.post("/employees")
+def employee_create(
+    device_user_id: str = Form(""),
+    name: str = Form(""),
+    emp_code: str = Form(""),
+    talenta_id: str = Form(""),
+    department: str = Form(""),
+    shift_key: str = Form(""),
+    roster_pattern: str = Form(""),
+    status: str = Form("active"),
+    active_from: str = Form(""),
+    active_to: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    try:
+        values = _employee_form(
+            device_user_id, name, emp_code, talenta_id, department,
+            shift_key, roster_pattern, status, active_from, active_to,
+        )
+    except ValueError as exc:
+        return RedirectResponse(f"/employees?error={exc}", status_code=303)
+
+    clash = session.execute(
+        select(Employee).where(
+            Employee.device_user_id == values["device_user_id"]
+        )
+    ).scalar_one_or_none()
+    if clash is not None:
+        return RedirectResponse(
+            f"/employees?error=Device ID {values['device_user_id']!r} "
+            f"already belongs to {clash.name}",
+            status_code=303,
+        )
+
+    session.add(Employee(**values))
+    session.commit()
+    return RedirectResponse(f"/employees?saved={values['name']}", status_code=303)
+
+
+@router.post("/employees/{employee_id}")
+def employee_update(
+    employee_id: int,
+    device_user_id: str = Form(""),
+    name: str = Form(""),
+    emp_code: str = Form(""),
+    talenta_id: str = Form(""),
+    department: str = Form(""),
+    shift_key: str = Form(""),
+    roster_pattern: str = Form(""),
+    status: str = Form("active"),
+    active_from: str = Form(""),
+    active_to: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    emp = session.get(Employee, employee_id)
+    if emp is None:
+        return RedirectResponse("/employees?error=No such employee", status_code=303)
+    try:
+        values = _employee_form(
+            device_user_id, name, emp_code, talenta_id, department,
+            shift_key, roster_pattern, status, active_from, active_to,
+        )
+    except ValueError as exc:
+        return RedirectResponse(f"/employees?error={exc}", status_code=303)
+
+    clash = session.execute(
+        select(Employee).where(
+            Employee.device_user_id == values["device_user_id"],
+            Employee.id != employee_id,
+        )
+    ).scalar_one_or_none()
+    if clash is not None:
+        return RedirectResponse(
+            f"/employees?error=Device ID {values['device_user_id']!r} "
+            f"already belongs to {clash.name}",
+            status_code=303,
+        )
+
+    shift_changed = emp.shift_key != values["shift_key"]
+    for field, value in values.items():
+        setattr(emp, field, value)
+    session.flush()
+
+    # A different shift means a different attribution window, so previously
+    # computed days for this employee no longer follow from their punches.
+    if shift_changed:
+        start, end, _ = vm.period_bounds(_current_period(session, None))
+        recompute_employee(session, emp, start, end)
+    session.commit()
+    return RedirectResponse(f"/employees?saved={values['name']}", status_code=303)
 
 
 # --------------------------------------------------------------------------- #
