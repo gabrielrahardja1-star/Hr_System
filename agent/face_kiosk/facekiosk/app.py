@@ -25,12 +25,16 @@ import datetime as dt
 import io as _io
 import os
 import secrets
+import socket
+import subprocess
 import threading
 import time
+import webbrowser
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 import cv2
 import numpy as np
@@ -48,9 +52,13 @@ from .config import (
     HQ_API_KEY,
     HQ_BASE_URL,
     HQ_CONFIG_PATH,
+    IS_WINDOWS,
     T,
+    ensure_hq_template,
     load_settings,
+    read_hq_config,
     save_setting,
+    write_hq_config,
 )
 from .gallery import Gallery
 from .run import Kiosk
@@ -135,6 +143,7 @@ class CameraWorker(threading.Thread):
         self._pending: dict[str, list[np.ndarray]] = {}
         self._pending_lock = threading.Lock()
         self.fps = 0.0
+        self._detect_every = 1     # raised automatically when detection is slow
         self.error: str | None = None
         self.frame_size: tuple[int, int] | None = None   # (h, w) of the last good frame
         self._requested_camera: str | None = None
@@ -164,6 +173,11 @@ class CameraWorker(threading.Thread):
         self.error = None
         self.frame_size = None
         self._latest_jpeg = None
+        # Remember the pick only now that it actually opened. Saving it when the
+        # switch was requested meant a typo or an unplugged camera was persisted
+        # too, and the kiosk booted into a device that wasn't there.
+        _SETTINGS.camera = cap.name
+        save_setting("camera", cap.name)
         with self.engine_lock:
             self.kiosk.tracker = IOUTracker()   # drop tracks from the old feed
         return cap
@@ -175,6 +189,8 @@ class CameraWorker(threading.Thread):
         self.started_ok.set()          # started_ok = "the thread is alive and took its shot",
         times: deque[float] = deque(maxlen=30)  # not "the camera is up" — check .error/.camera_ok
         last_reconnect_attempt = 0.0
+        frame_i = 0
+        detect_times: deque[float] = deque(maxlen=20)
         try:
             while not self._stop.is_set():
                 if self._requested_camera is not None:
@@ -227,8 +243,23 @@ class CameraWorker(threading.Thread):
                 self.frame_size = frame.shape[:2]
                 with self._raw_lock:
                     self._latest_raw = frame.copy()
-                with self.engine_lock, self.gallery_lock:
-                    self.kiosk.process(frame)  # draws overlays onto `frame`
+                # Detection is far slower than capture on kiosk hardware, and
+                # running it on every frame made the video visibly choppy. Show
+                # every frame; detect on as many as the CPU can keep up with,
+                # replaying the last boxes in between so overlays don't flicker.
+                if frame_i % self._detect_every == 0:
+                    t_detect = time.monotonic()
+                    with self.engine_lock, self.gallery_lock:
+                        self.kiosk.process(frame)  # draws overlays onto `frame`
+                    detect_times.append(time.monotonic() - t_detect)
+                    mean_detect = sum(detect_times) / len(detect_times)
+                    # One detection per ~2 display frames at 30fps; capped so a
+                    # very slow machine still recognises people promptly.
+                    self._detect_every = max(1, min(5, round(mean_detect / 0.066)))
+                else:
+                    with self.engine_lock:
+                        self.kiosk.replay_overlays(frame)
+                frame_i += 1
                 # Mirror the DISPLAY copy only, after detection/overlays: aiming
                 # your own face at a feed that doesn't mirror is disorienting,
                 # worse so mid-liveness-turn. Box positions mirror correctly
@@ -250,8 +281,6 @@ class CameraWorker(threading.Thread):
         """Ask the camera thread to switch devices, by name. Async — poll
         status()/error afterwards to see whether it took."""
         self._requested_camera = name
-        _SETTINGS.camera = name
-        save_setting("camera", name)  # survive a restart or a power cut
 
     def cameras(self) -> dict:
         """What's available to switch to, plus the one currently in use.
@@ -540,6 +569,48 @@ def create_app() -> FastAPI:
             {"status": worker.status(), "min_shots": MIN_SHOTS, "max_shots": MAX_SHOTS},
         )
 
+    @app.get("/admin/settings", response_class=HTMLResponse)
+    def settings_page(request: Request, saved: int = 0):
+        if (redirect := _require_admin_page(request)) is not None:
+            return redirect
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            {"status": worker.status(), "page": "settings", "hq": read_hq_config(),
+             "config_path": str(HQ_CONFIG_PATH), "saved": bool(saved), "error": None},
+        )
+
+    @app.post("/admin/settings")
+    async def settings_save(request: Request):
+        if (redirect := _require_admin_page(request)) is not None:
+            return redirect
+        form = await request.form()
+        url = str(form.get("url", "")).strip().rstrip("/")
+        if url and not url.startswith(("http://", "https://")):
+            url = "http://" + url
+        values = {
+            "url": url,
+            "api_key": str(form.get("api_key", "")).strip(),
+            "device_id": str(form.get("device_id", "")).strip() or "FACE-KIOSK-01",
+        }
+        try:
+            write_hq_config(values)
+        except OSError as exc:
+            return templates.TemplateResponse(
+                request,
+                "settings.html",
+                {"status": worker.status(), "page": "settings", "hq": values,
+                 "config_path": str(HQ_CONFIG_PATH), "saved": False,
+                 "error": f"Could not write {HQ_CONFIG_PATH}: {exc}"},
+            )
+        return RedirectResponse("/admin/settings?saved=1", status_code=303)
+
+    @app.post("/api/hq/test", dependencies=[Depends(admin_required)])
+    def api_hq_test():
+        from .sync import check_hq
+
+        return check_hq()
+
     # --- admin: JSON API --------------------------------------------- #
 
     @app.get("/api/roster", dependencies=[Depends(admin_required)])
@@ -619,6 +690,62 @@ def create_app() -> FastAPI:
     return app
 
 
+_BROWSERS_WINDOWS = [
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+]
+_BROWSERS_MAC = [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+]
+
+
+def _open_window(url: str, wait_s: float = 20.0) -> None:
+    """Open the kiosk in its own window once the server answers.
+
+    Chrome and Edge both take --app, which drops the address bar, tabs and
+    menus — so this looks like an application rather than a browser, without
+    bundling a second rendering engine into the exe. Falls back to a normal
+    browser tab, and to printing the URL, so the kiosk is never unreachable
+    just because a window could not be opened.
+    """
+    parts = urlsplit(url)
+    address = (parts.hostname or "127.0.0.1", parts.port or 80)
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(address, timeout=0.5):
+                break
+        except OSError:
+            time.sleep(0.25)
+    else:
+        print("! kiosk window: server did not come up in time")
+        return
+
+    candidates = _BROWSERS_WINDOWS if IS_WINDOWS else _BROWSERS_MAC
+    profile = str(DATA_DIR / "browser")  # keeps kiosk state out of the user's own profile
+    for exe in candidates:
+        if not os.path.exists(exe):
+            continue
+        try:
+            subprocess.Popen(
+                [exe, f"--app={url}", "--start-fullscreen",
+                 f"--user-data-dir={profile}", "--no-first-run",
+                 "--disable-features=TranslateUI"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            return
+        except OSError:
+            continue
+
+    try:
+        webbrowser.open(url)
+    except Exception:  # noqa: BLE001 - the URL is printed above regardless
+        print(f"! could not open a window — open {url} yourself")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
@@ -630,12 +757,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--port", type=int, default=8770)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--match-cosine", type=float, default=T.match_cosine)
-    ap.add_argument("--no-liveness", dest="liveness", action="store_false")
+    # Off by default: the head-turn challenge asked every person to turn and
+    # look back before the light went green, which is a lot of friction on a
+    # shift-change queue. The trade is that a held-up photo can now clock
+    # someone in, so it stays available for sites that need it.
+    ap.add_argument("--liveness", dest="liveness", action="store_true",
+                    help="require the head-turn challenge before a face counts")
+    ap.set_defaults(liveness=False)
     ap.add_argument(
         "--auto-log",
         action="store_true",
         help="also log automatically on recognition (default: only a Check In/Out tap logs)",
     )
+    ap.add_argument("--no-window", dest="window", action="store_false",
+                    help="don't open the kiosk window; just serve it")
+    ap.set_defaults(window=True)
     args = ap.parse_args(argv)
 
     # An explicit --camera wins; otherwise reuse whatever was last picked in
@@ -651,9 +787,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"data:  {DATA_DIR}")
     print(f"sync:  {HQ_BASE_URL}  device={DEVICE_ID}  "
           f"api key {'set' if HQ_API_KEY else 'MISSING — Sync will fail'}")
-    if not HQ_CONFIG_PATH.exists():
-        print(f"       (configure with {HQ_CONFIG_PATH}: "
-              '{"url": "http://<hq-host>:8001", "api_key": "...", "device_id": "..."})')
+    if ensure_hq_template():
+        print(f"       (blank {HQ_CONFIG_PATH.name} written — fill it in, or use "
+              "Settings in the admin page)")
+    if args.window:
+        threading.Thread(
+            target=_open_window, args=(f"http://{args.host}:{args.port}",), daemon=True
+        ).start()
     uvicorn.run(create_app(), host=args.host, port=args.port, log_level="warning")
     return 0
 

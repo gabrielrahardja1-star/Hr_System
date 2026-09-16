@@ -73,6 +73,56 @@ def _hq_setting(key: str, env_var: str, default: str) -> str:
     return os.environ.get(env_var) or str(_HQ.get(key) or "") or default
 
 
+def ensure_hq_template() -> bool:
+    """Drop a fill-in-the-blanks hq.json next to the data folder on first run.
+
+    Written here rather than shipped in the download because this is the one
+    place it is guaranteed to land: beside the executable, where the app will
+    actually read it. Returns True if it created one.
+    """
+    if HQ_CONFIG_PATH.exists():
+        return False
+    template = {
+        "_comment": "Fill in url and api_key, then restart. Or use Settings in the admin page.",
+        "url": "http://CHANGE-ME:8001",
+        "api_key": "",
+        "device_id": "FACE-KIOSK-01",
+    }
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        HQ_CONFIG_PATH.write_text(json.dumps(template, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+def read_hq_config() -> dict:
+    """Current sync settings, for the admin form."""
+    loaded = _hq_file()
+    return {
+        "url": str(loaded.get("url") or ""),
+        "api_key": str(loaded.get("api_key") or ""),
+        "device_id": str(loaded.get("device_id") or ""),
+    }
+
+
+def write_hq_config(values: dict) -> None:
+    """Save sync settings. Raises OSError so the form can say why it failed —
+    silently swallowing it would leave a kiosk that never syncs and never says so.
+    """
+    global _HQ, HQ_BASE_URL, HQ_API_KEY, DEVICE_ID
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = HQ_CONFIG_PATH.with_name(HQ_CONFIG_PATH.name + ".tmp")
+    tmp.write_text(json.dumps(values, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(HQ_CONFIG_PATH)
+    _HQ = _hq_file()
+    # Take effect now rather than at the next restart — an operator who just
+    # pressed Save and then Sync should not be told the key is still missing.
+    HQ_BASE_URL = _hq_setting("url", "FACEKIOSK_HQ_URL", "http://localhost:8000").rstrip("/")
+    HQ_API_KEY = _hq_setting("api_key", "FACEKIOSK_HQ_API_KEY", "")
+    DEVICE_ID = _hq_setting("device_id", "FACEKIOSK_DEVICE_ID", "FACE-KIOSK-01")
+
+
 HQ_BASE_URL = _hq_setting("url", "FACEKIOSK_HQ_URL", "http://localhost:8000").rstrip("/")
 HQ_API_KEY = _hq_setting("api_key", "FACEKIOSK_HQ_API_KEY", "")
 DEVICE_ID = _hq_setting("device_id", "FACEKIOSK_DEVICE_ID", "FACE-KIOSK-01")

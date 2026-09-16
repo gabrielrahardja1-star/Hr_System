@@ -55,6 +55,7 @@ class Kiosk:
         self.engine = FaceEngine(detect_score=args.conf_thres)
         self.gallery = gallery if gallery is not None else Gallery()
         self.tracker = IOUTracker()
+        self.overlays: list[tuple] = []
         self.debounce: dict[str, float] = {}     # uid -> monotonic time of last event
         self.events = 0
         self.auto_log = auto_log                 # False = a Check In/Out tap is the only logger
@@ -254,7 +255,7 @@ class Kiosk:
             if dbg:
                 name_lbl = self.gallery.people[leader_uid].name if leader_uid else "?"
                 label = f"{name_lbl}  {match.similarity:.2f}"
-            viz.draw_box(frame, face.box, viz.AMBER, label)
+            self._box(frame, face.box, viz.AMBER, label)
             if dbg:
                 _vote_bar(frame, face.box, count)
 
@@ -274,14 +275,14 @@ class Kiosk:
                 track.votes.clear()
 
         elif stage == "unrecognized":
-            viz.draw_box(frame, face.box, viz.RED, "Not recognised" if dbg else "")
+            self._box(frame, face.box, viz.RED, "Not recognised" if dbg else "")
             if time.monotonic() > track.stage_until:
                 track.stage = "recognizing"
 
         elif stage == "awaiting_liveness":
             uid, name = track.identity
             result = track.challenge.update(face)
-            viz.draw_box(frame, face.box, viz.AMBER, f"{name} — turn your head" if dbg else "")
+            self._box(frame, face.box, viz.AMBER, f"{name} — turn your head" if dbg else "")
             if dbg:
                 viz.progress_bar(frame, track.challenge.progress, viz.AMBER)
             if result is not None:
@@ -303,7 +304,7 @@ class Kiosk:
 
         elif stage == "liveness_failed":
             uid, name = track.identity if track.identity else (None, None)
-            viz.draw_box(frame, face.box, viz.RED, f"{name} — try again" if dbg and name else "")
+            self._box(frame, face.box, viz.RED, f"{name} — try again" if dbg and name else "")
             if time.monotonic() > track.stage_until:
                 track.stage = "recognizing"
                 track.votes.clear()
@@ -316,14 +317,14 @@ class Kiosk:
             stamped = self.debounce.get(uid)
             label = f"{name}" if dbg else ""
             if stamped is not None and mono - stamped < T.capture_debounce_seconds:
-                viz.draw_box(frame, face.box, viz.GREY, f"{label}  logged" if dbg else "")
+                self._box(frame, face.box, viz.GREY, f"{label}  logged" if dbg else "")
             elif track.id == self._candidate_track_id:
                 # The one box the Check In/Out button actually refers to.
-                viz.draw_box(frame, face.box, viz.GREEN, f"{label}  — tap Check In / Out" if dbg else "")
+                self._box(frame, face.box, viz.GREEN, f"{label}  — tap Check In / Out" if dbg else "")
             else:
                 # Recognised but not the candidate the button would stamp — grey,
                 # so a crowd never shows two boxes claiming the same tap.
-                viz.draw_box(frame, face.box, viz.GREY, label)
+                self._box(frame, face.box, viz.GREY, label)
 
         elif stage == "committed":
             uid, name = track.identity
@@ -333,13 +334,24 @@ class Kiosk:
             if dbg:
                 tail = "" if done else f"  {getattr(track, 'greet_text', 'OK')}"
                 label = f"{name}{tail}"
-            viz.draw_box(frame, face.box, color, label)
+            self._box(frame, face.box, color, label)
 
     # --- main loop -------------------------------------------------- #
+
+    def _box(self, frame, box, color, label: str = "") -> None:
+        """Draw an overlay and remember it, so a frame that skips detection can
+        replay the last one instead of showing bare video or nothing at all."""
+        self.overlays.append((box, color, label))
+        viz.draw_box(frame, box, color, label)
+
+    def replay_overlays(self, frame) -> None:
+        for box, color, label in self.overlays:
+            viz.draw_box(frame, box, color, label)
 
     def process(self, frame) -> list:
         """Run one frame through the whole pipeline; returns the faces detected
         this frame. Camera-free entry point — used by the loop and by selftest."""
+        self.overlays = []
         faces = [f for f in self.engine.detect(frame) if f.size >= T.min_face_px]
         pairs = self.tracker.update(faces)
         cand = self._pick_candidate_track()

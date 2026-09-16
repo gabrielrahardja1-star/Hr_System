@@ -66,11 +66,16 @@ def _fetch_images() -> dict[str, "np.ndarray"]:
 def _sandbox(box: Path) -> dict:
     """Point every on-disk path at `box` so the real data/ is never touched.
     Returns the originals for restoration."""
+    from . import config as cmod
     from . import gallery as gmod
     from . import run as rmod
     from . import store as smod
 
     orig = {
+        # Without this the app's own camera-switch checks write the selftest's
+        # fake camera name into the real settings file, and the next real run
+        # boots looking for a device that never existed.
+        (cmod, "SETTINGS_PATH"): cmod.SETTINGS_PATH,
         (gmod, "GALLERY_PATH"): gmod.GALLERY_PATH,
         (gmod, "KEY_PATH"): gmod.KEY_PATH,
         (gmod, "DATA_DIR"): gmod.DATA_DIR,
@@ -78,6 +83,7 @@ def _sandbox(box: Path) -> dict:
         (rmod, "EVENT_LOG"): rmod.EVENT_LOG,
         (rmod, "DATA_DIR"): rmod.DATA_DIR,
     }
+    cmod.SETTINGS_PATH = box / "kiosk_settings.json"
     gmod.GALLERY_PATH = box / "faces.gallery"
     gmod.KEY_PATH = box / "faces.key"
     gmod.DATA_DIR = box
