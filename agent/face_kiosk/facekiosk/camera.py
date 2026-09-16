@@ -66,7 +66,12 @@ _DEVICE_LINE = re.compile(r"\]\s*\[(\d+)\]\s+(.+?)\s*$")
 
 # dshow: `[dshow @ 0x...]  "Integrated Camera"` (video devices section only;
 # an indented `Alternative name "..."` line follows each device — skip those).
-_DSHOW_DEVICE_LINE = re.compile(r'^\[dshow[^\]]*\]\s+"([^"]+)"\s*$')
+# ffmpeg >= 5 annotates the kind after the name: `"Integrated Camera" (video)`.
+# Without the optional group the name never matches on a current ffmpeg and the
+# kiosk reports "no cameras found" on a machine that has one.
+_DSHOW_DEVICE_LINE = re.compile(
+    r'^\[dshow[^\]]*\]\s+"([^"]+)"(?:\s+\((?P<kind>video|audio)\))?\s*$'
+)
 
 
 class CameraError(RuntimeError):
@@ -111,6 +116,13 @@ def _parse_avfoundation_devices(stderr: str) -> list[str]:
 
 
 def _parse_dshow_devices(stderr: str) -> list[str]:
+    """Video device names from `ffmpeg -f dshow -list_devices true`.
+
+    Handles both layouts: older ffmpeg groups devices under "DirectShow video
+    devices" / "DirectShow audio devices" headers, newer ffmpeg drops the
+    headers and tags each device "(video)" or "(audio)" instead. Relying on
+    either one alone finds nothing on half the ffmpeg builds in the wild.
+    """
     names: list[str] = []
     in_video = False
     for line in stderr.splitlines():
@@ -118,13 +130,15 @@ def _parse_dshow_devices(stderr: str) -> list[str]:
             in_video = True
             continue
         if "DirectShow audio devices" in line:
-            break
-        if not in_video:
+            in_video = False
             continue
         if "Alternative name" in line:
             continue  # a secondary identifier for the device just above, not a device
         match = _DSHOW_DEVICE_LINE.search(line)
-        if match:
+        if not match:
+            continue
+        kind = match.group("kind")
+        if kind == "video" or (kind is None and in_video):
             names.append(match.group(1))
     return names
 
@@ -251,9 +265,15 @@ def open_camera(
     """
     available = list_cameras()
     if not available:
+        permission = (
+            "Settings > Privacy & security > Camera > 'Let desktop apps access your camera'"
+            if IS_WINDOWS
+            else "macOS camera permission for this app"
+        )
         raise CameraError(
-            "no cameras found. Is ffmpeg installed and does this app have macOS "
-            "camera permission? Run `python -m facekiosk.camera` for details."
+            f"no cameras found. Check {permission}, and that no other app is "
+            f"holding the camera. Run `{FFMPEG} -f {FFMPEG_FORMAT} -list_devices "
+            "true -i dummy` to see what ffmpeg sees."
         )
     if not name:
         name = available[0]

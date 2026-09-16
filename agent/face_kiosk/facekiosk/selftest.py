@@ -231,6 +231,32 @@ def _run(box: Path) -> int:
     )
     night.close()
 
+    # --- dshow device parsing (Windows camera discovery) ------------ #
+    from .camera import _parse_dshow_devices
+
+    _dshow_new = (
+        '[dshow @ 0001] "Integrated Camera" (video)\n'
+        '[dshow @ 0001]   Alternative name "@device_pnp_\\\\?\\usb#vid_0bda"\n'
+        '[dshow @ 0001] "Microphone Array (Realtek)" (audio)\n'
+    )
+    _dshow_old = (
+        "[dshow @ 0001] DirectShow video devices (some may be both video and audio devices)\n"
+        '[dshow @ 0001]  "Integrated Camera"\n'
+        '[dshow @ 0001]     Alternative name "@device_pnp_\\\\?\\usb#vid_0bda"\n'
+        "[dshow @ 0001] DirectShow audio devices\n"
+        '[dshow @ 0001]  "Microphone Array (Realtek)"\n'
+    )
+    check(
+        "dshow parser reads ffmpeg >= 5 output (name annotated '(video)')",
+        _parse_dshow_devices(_dshow_new) == ["Integrated Camera"],
+        str(_parse_dshow_devices(_dshow_new)),
+    )
+    check(
+        "dshow parser still reads older sectioned ffmpeg output",
+        _parse_dshow_devices(_dshow_old) == ["Integrated Camera"],
+        str(_parse_dshow_devices(_dshow_old)),
+    )
+
     # --- web app routes (camera intentionally absent) --------------- #
     try:
         from fastapi.testclient import TestClient
