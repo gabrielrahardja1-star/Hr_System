@@ -18,7 +18,7 @@ def test_days_after_frontier_are_not_absent(make_employee, add_punches, session)
     from server.core.recompute import recompute_all
     from server.models import DayRecord
 
-    emp = make_employee(shift_key="A", roster_pattern="continuous")
+    emp = make_employee(shift_key="S1", roster_pattern="continuous")
     # punches only through Aug 5
     for d in range(3, 6):
         add_punches(emp.device_user_id, [_wib(2026, 8, d, 6, 0), _wib(2026, 8, d, 14, 30)])
@@ -37,7 +37,7 @@ def test_frontier_can_be_overridden(make_employee, add_punches, session):
     from server.core.recompute import recompute_all
     from server.models import DayRecord
 
-    emp = make_employee(shift_key="A", roster_pattern="continuous")
+    emp = make_employee(shift_key="S1", roster_pattern="continuous")
     add_punches(emp.device_user_id, [_wib(2026, 8, 3, 6, 0), _wib(2026, 8, 3, 14, 30)])
 
     recompute_all(session, dt.date(2026, 8, 3), dt.date(2026, 8, 6), respect_frontier=False)
@@ -51,7 +51,7 @@ def test_correction_never_pays_negative(make_employee, add_punches, session):
     from server.core.recompute import recompute_employee
     from server.models import Correction, DayRecord, Employee
 
-    emp = make_employee(shift_key="B", roster_pattern="continuous")
+    emp = make_employee(shift_key="S2", roster_pattern="continuous")
     # night shift: single clock-in at 18:10 -> MP
     add_punches(emp.device_user_id, [_wib(2026, 8, 3, 18, 10)])
     recompute_employee(session, emp, dt.date(2026, 8, 3), dt.date(2026, 8, 3))

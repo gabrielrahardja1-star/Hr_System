@@ -115,12 +115,12 @@ def test_recompute_is_idempotent(make_employee, add_punches, session):
     assert session.query(Exception_).count() == 1
 
 
-def test_night_shift_attribution(make_employee, add_punches, session):
-    """A Shift-B punch after midnight belongs to the date the shift started."""
+def test_evening_shift_attribution(make_employee, add_punches, session):
+    """A Shift-2 punch after midnight belongs to the date the shift started."""
     from server.core.recompute import recompute_employee
     from server.models import DayRecord
 
-    emp = make_employee(shift_key="B", roster_pattern="continuous")
+    emp = make_employee(shift_key="S2", roster_pattern="continuous")
     # in 18:10 on the 3rd, out 02:20 on the 4th
     add_punches(
         emp.device_user_id,
@@ -133,5 +133,26 @@ def test_night_shift_attribution(make_employee, add_punches, session):
     assert rec_3.code == "P"
     assert rec_3.worked_hours == pytest.approx(8.17, abs=0.02)
     # the 4th should have no punches attributed to it from that pair
+    rec_4 = session.query(DayRecord).filter_by(employee_id=emp.id, work_date=dt.date(2026, 8, 4)).one()
+    assert rec_4.code in ("A", "MP")
+
+
+def test_night_shift_attribution(make_employee, add_punches, session):
+    """Shift 3 (23:00-07:00) is paid on the date it started, not the date it ended."""
+    from server.core.recompute import recompute_employee
+    from server.models import DayRecord
+
+    emp = make_employee(shift_key="S3", roster_pattern="continuous")
+    # in 23:10 on the 3rd, out 07:05 on the 4th
+    add_punches(
+        emp.device_user_id,
+        [_wib(2026, 8, 3, 23, 10), _wib(2026, 8, 4, 7, 5)],
+    )
+    recompute_employee(session, emp, dt.date(2026, 8, 3), dt.date(2026, 8, 4))
+    session.commit()
+
+    rec_3 = session.query(DayRecord).filter_by(employee_id=emp.id, work_date=dt.date(2026, 8, 3)).one()
+    assert rec_3.code == "P"
+    assert rec_3.worked_hours == pytest.approx(7.92, abs=0.02)
     rec_4 = session.query(DayRecord).filter_by(employee_id=emp.id, work_date=dt.date(2026, 8, 4)).one()
     assert rec_4.code in ("A", "MP")

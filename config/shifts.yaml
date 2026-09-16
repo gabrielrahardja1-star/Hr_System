@@ -9,34 +9,34 @@
 # Above long_hours -> LONG exception (cell stays P).
 
 shifts:
-  A:
-    name: "Shift A (Pagi)"
-    start: "06:00"
-    end: "14:30"
-    window_start: "03:00"   # earliest a Shift-A punch is believable
-    window_end: "20:00"     # latest before it rolls into Shift B territory
+  S1:
+    name: "Shift 1 (Pagi)"
+    start: "08:00"
+    end: "15:00"
+    window_start: "05:00"   # earliest a Shift-1 punch is believable
+    window_end: "20:00"     # latest before it rolls into Shift 2 territory
     crosses_midnight: false
-    short_hours: 6.0
+    short_hours: 5.0
     long_hours: 12.0
 
-  B:
-    name: "Shift B (Malam)"
-    start: "18:00"
-    end: "02:00"
-    window_start: "15:00"
-    window_end: "10:00"     # next day
+  S2:
+    name: "Shift 2 (Sore)"
+    start: "16:00"
+    end: "00:00"            # midnight -> counts as crossing
+    window_start: "13:00"
+    window_end: "04:00"     # next day
     crosses_midnight: true
     short_hours: 6.0
     long_hours: 12.0
 
-  OFFICE:
-    name: "Kantor"
-    start: "08:00"
-    end: "17:00"
-    window_start: "05:00"
-    window_end: "22:00"
-    crosses_midnight: false
-    short_hours: 6.5
+  S3:
+    name: "Shift 3 (Malam)"
+    start: "23:00"
+    end: "07:00"
+    window_start: "20:00"
+    window_end: "12:00"     # next day
+    crosses_midnight: true
+    short_hours: 6.0
     long_hours: 12.0
 
 # Weekly roster patterns. One char per weekday starting Monday.

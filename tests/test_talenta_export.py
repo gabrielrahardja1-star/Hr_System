@@ -58,7 +58,7 @@ def _emp(make_employee, talenta_id, device_user_id="9001"):
         talenta_id=talenta_id,
         name="Test Worker",
         department="Operations",
-        shift_key="OFFICE",
+        shift_key="S1",
         roster_pattern="continuous",
     )
 

@@ -17,11 +17,11 @@ def _seed_month(make_employee, add_punches, session):
 
     make_employee(
         device_user_id="1001", emp_code="KM-1400", name="Budi Santoso",
-        department="Operasi Tambang", shift_key="A", roster_pattern="continuous",
+        department="Operasi Tambang", shift_key="S1", roster_pattern="continuous",
     )
     make_employee(
         device_user_id="1002", emp_code="KM-1403", name="Siti Wijaya",
-        department="Hauling", shift_key="A", roster_pattern="continuous",
+        department="Hauling", shift_key="S1", roster_pattern="continuous",
     )
     for day in range(1, 11):
         add_punches("1001", [_wib(2026, 8, day, 6, 0), _wib(2026, 8, day, 14, 30)])

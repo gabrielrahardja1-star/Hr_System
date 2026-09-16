@@ -22,11 +22,11 @@ def _seed_month(make_employee, add_punches, session):
 
     clean = make_employee(
         device_user_id="1001", emp_code="KM-1400", name="Budi Santoso",
-        shift_key="A", roster_pattern="continuous",
+        shift_key="S1", roster_pattern="continuous",
     )
     messy = make_employee(
         device_user_id="1002", emp_code="KM-1403", name="Siti Wijaya",
-        shift_key="A", roster_pattern="continuous",
+        shift_key="S1", roster_pattern="continuous",
     )
     for day in range(1, 11):
         add_punches("1001", [_wib(2026, 8, day, 6, 0), _wib(2026, 8, day, 14, 30)])

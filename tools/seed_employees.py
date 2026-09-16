@@ -32,15 +32,17 @@ LAST = [
     "Purnomo", "Hartono",
 ]
 DEPARTMENTS = [
-    ("Operasi Tambang", "A"),
-    ("Hauling", "B"),
-    ("Pengolahan", "A"),
-    ("Maintenance", "A"),
-    ("Survey & Geologi", "OFFICE"),
-    ("HSE", "OFFICE"),
-    ("Gudang", "A"),
-    ("Listrik", "B"),
+    ("Operasi Tambang", "S1"),
+    ("Hauling", "S2"),
+    ("Pengolahan", "S3"),
+    ("Maintenance", "S1"),
+    ("Survey & Geologi", "S1"),
+    ("HSE", "S1"),
+    ("Gudang", "S1"),
+    ("Listrik", "S2"),
 ]
+# Staff who keep office hours rather than rotating with the crews.
+OFFICE_DEPTS = {"Survey & Geologi", "HSE"}
 ROSTERS = ["six_day_sun_off", "five_day_weekend", "continuous"]
 
 
@@ -63,9 +65,9 @@ def build_employees(count: int) -> list[dict]:
                 "name": f"{first} {last}",
                 "department": dept,
                 "status": status,
-                "shift_key": "OFFICE" if dept in ("Survey & Geologi", "HSE") else shift,
+                "shift_key": shift,
                 "roster_pattern": "five_day_weekend"
-                if shift == "OFFICE"
+                if dept in OFFICE_DEPTS
                 else ROSTERS[i % 2],
                 "active_from": dt.date(2025, 1, 1),
             }

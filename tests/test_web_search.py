@@ -7,11 +7,11 @@ import datetime as dt
 
 def _seed(make_employee):
     make_employee(device_user_id="1001", emp_code="KM-1400", name="Budi Santoso",
-                  department="Operasi Tambang", shift_key="A", roster_pattern="continuous")
+                  department="Operasi Tambang", shift_key="S1", roster_pattern="continuous")
     make_employee(device_user_id="1002", emp_code="KM-1403", name="Siti Wijaya",
-                  department="Hauling", shift_key="A", roster_pattern="continuous")
+                  department="Hauling", shift_key="S1", roster_pattern="continuous")
     make_employee(device_user_id="1003", emp_code="KM-1406", name="Budi Hartono",
-                  department="Gudang", shift_key="A", roster_pattern="continuous")
+                  department="Gudang", shift_key="S1", roster_pattern="continuous")
 
 
 def test_monthly_grid_search_by_name(make_employee, session):

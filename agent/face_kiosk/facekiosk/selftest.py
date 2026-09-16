@@ -210,6 +210,27 @@ def _run(box: Path) -> int:
     )
     st.close()
 
+    # --- overnight shift spans two calendar dates ------------------- #
+    night = SightingStore(box / "night.db")
+    for ts, direction in [
+        ("2026-01-02T23:10:00+07:00", "in"),   # Shift 3 starts
+        ("2026-01-03T07:05:00+07:00", "out"),  # ...and ends the next morning
+    ]:
+        night.record({"ts": ts, "device_user_id": "N1", "emp_id": "43", "name": "Malam",
+                      "direction": direction, "similarity": 0.8, "liveness": "pass"})
+    n2 = night.roster_for_date("2026-01-02")
+    check(
+        "overnight shift is rolled up on the date it started",
+        len(n2) == 1 and n2[0]["check_out"][11:16] == "07:05" and abs(n2[0]["hours"] - 7.92) < 0.02,
+        str(n2),
+    )
+    check(
+        "overnight clock-out does not also appear as its own next-day shift",
+        night.roster_for_date("2026-01-03") == [],
+        str(night.roster_for_date("2026-01-03")),
+    )
+    night.close()
+
     # --- web app routes (camera intentionally absent) --------------- #
     try:
         from fastapi.testclient import TestClient
