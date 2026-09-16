@@ -192,6 +192,18 @@ def _run(box: Path) -> int:
         auto.process(imgs["person_a.jpg"].copy())
     check("auto-log emits one event for the enrolled face", auto.events == 1, f"events={auto.events}")
 
+    # Detection and display run on separate threads: process() must only
+    # RECORD what to draw, and the display thread draws it. If process() drew
+    # directly, boxes would appear on the few frames detection happened to
+    # touch and be missing from every other one.
+    check("process() records overlays for the display thread",
+          len(auto.overlays) >= 1, f"overlays={len(auto.overlays)}")
+    _clean = imgs["person_a.jpg"].copy()
+    _before = _clean.copy()
+    auto.replay_overlays(_clean)
+    check("replay_overlays actually draws them",
+          not np.array_equal(_clean, _before))
+
     manual = Kiosk(args, auto_log=False)
     for _ in range(T.vote_frames + 4):
         manual.process(imgs["person_a.jpg"].copy())

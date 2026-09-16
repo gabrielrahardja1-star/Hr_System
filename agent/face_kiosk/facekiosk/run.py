@@ -56,6 +56,7 @@ class Kiosk:
         self.gallery = gallery if gallery is not None else Gallery()
         self.tracker = IOUTracker()
         self.overlays: list[tuple] = []
+        self._building_overlays: list[tuple] = []
         self.debounce: dict[str, float] = {}     # uid -> monotonic time of last event
         self.events = 0
         self.auto_log = auto_log                 # False = a Check In/Out tap is the only logger
@@ -339,10 +340,14 @@ class Kiosk:
     # --- main loop -------------------------------------------------- #
 
     def _box(self, frame, box, color, label: str = "") -> None:
-        """Draw an overlay and remember it, so a frame that skips detection can
-        replay the last one instead of showing bare video or nothing at all."""
-        self.overlays.append((box, color, label))
-        viz.draw_box(frame, box, color, label)
+        """Record an overlay instead of drawing it.
+
+        Detection runs on its own thread, at whatever rate the machine manages,
+        while the display thread shows every frame. So detection describes what
+        should be drawn and the display thread draws it — otherwise overlays
+        would appear only on the frames detection happened to touch.
+        """
+        self._building_overlays.append((box, color, label))
 
     def replay_overlays(self, frame) -> None:
         for box, color, label in self.overlays:
@@ -351,13 +356,16 @@ class Kiosk:
     def process(self, frame) -> list:
         """Run one frame through the whole pipeline; returns the faces detected
         this frame. Camera-free entry point — used by the loop and by selftest."""
-        self.overlays = []
+        self._building_overlays: list[tuple] = []
         faces = [f for f in self.engine.detect(frame) if f.size >= T.min_face_px]
         pairs = self.tracker.update(faces)
         cand = self._pick_candidate_track()
         self._candidate_track_id = cand.id if cand is not None else None
         for track, _face in pairs:
             self._step_track(track, frame)
+        # Swap in one go. The display thread reads this list while we build the
+        # next one, and a half-built list would flicker boxes on and off.
+        self.overlays = self._building_overlays
         return faces
 
     def run(self, frames=None) -> int:
@@ -383,6 +391,7 @@ class Kiosk:
                     break
 
                 faces = self.process(frame)
+                self.replay_overlays(frame)   # process() records; drawing is ours
 
                 frame_times.append(time.monotonic() - t0)
                 if show:

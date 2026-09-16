@@ -27,6 +27,7 @@ import os
 import secrets
 import socket
 import subprocess
+import sys
 import threading
 import time
 import webbrowser
@@ -143,7 +144,8 @@ class CameraWorker(threading.Thread):
         self._pending: dict[str, list[np.ndarray]] = {}
         self._pending_lock = threading.Lock()
         self.fps = 0.0
-        self._detect_every = 1     # raised automatically when detection is slow
+        self._detect_input: np.ndarray | None = None   # newest frame for the detector
+        self.detect_ms = 0                             # last detection, for /api/status
         self.error: str | None = None
         self.frame_size: tuple[int, int] | None = None   # (h, w) of the last good frame
         self._requested_camera: str | None = None
@@ -184,13 +186,36 @@ class CameraWorker(threading.Thread):
 
     RECONNECT_INTERVAL_S = 2.0
 
+    def _detect_loop(self) -> None:
+        """Detect faces as fast as this machine manages, independent of display.
+
+        Takes whatever frame is newest rather than a queue of them: a kiosk
+        cares about who is standing there now, and working through a backlog
+        would only push recognition further behind.
+        """
+        while not self._stop.is_set():
+            frame = self._detect_input
+            if frame is None:
+                time.sleep(0.02)
+                continue
+            self._detect_input = None
+            work = frame.copy()   # the display thread draws on the original
+            t0 = time.monotonic()
+            try:
+                with self.engine_lock, self.gallery_lock:
+                    self.kiosk.process(work)
+            except Exception as exc:  # noqa: BLE001 - one bad frame must not end detection
+                print(f"detection error: {exc}", file=sys.stderr)
+                time.sleep(0.05)
+                continue
+            self.detect_ms = round((time.monotonic() - t0) * 1000)
+
     def run(self) -> None:
+        threading.Thread(target=self._detect_loop, name="detector", daemon=True).start()
         cap = self._open(self.camera)
         self.started_ok.set()          # started_ok = "the thread is alive and took its shot",
         times: deque[float] = deque(maxlen=30)  # not "the camera is up" — check .error/.camera_ok
         last_reconnect_attempt = 0.0
-        frame_i = 0
-        detect_times: deque[float] = deque(maxlen=20)
         try:
             while not self._stop.is_set():
                 if self._requested_camera is not None:
@@ -243,23 +268,12 @@ class CameraWorker(threading.Thread):
                 self.frame_size = frame.shape[:2]
                 with self._raw_lock:
                     self._latest_raw = frame.copy()
-                # Detection is far slower than capture on kiosk hardware, and
-                # running it on every frame made the video visibly choppy. Show
-                # every frame; detect on as many as the CPU can keep up with,
-                # replaying the last boxes in between so overlays don't flicker.
-                if frame_i % self._detect_every == 0:
-                    t_detect = time.monotonic()
-                    with self.engine_lock, self.gallery_lock:
-                        self.kiosk.process(frame)  # draws overlays onto `frame`
-                    detect_times.append(time.monotonic() - t_detect)
-                    mean_detect = sum(detect_times) / len(detect_times)
-                    # One detection per ~2 display frames at 30fps; capped so a
-                    # very slow machine still recognises people promptly.
-                    self._detect_every = max(1, min(5, round(mean_detect / 0.066)))
-                else:
-                    with self.engine_lock:
-                        self.kiosk.replay_overlays(frame)
-                frame_i += 1
+                # Detection runs on its own thread — see _detect_loop. Here we
+                # only hand it the newest frame and draw whatever it last found,
+                # so the video never waits for a face detector that might take
+                # 100ms+ on kiosk hardware.
+                self._detect_input = frame
+                self.kiosk.replay_overlays(frame)
                 # Mirror the DISPLAY copy only, after detection/overlays: aiming
                 # your own face at a feed that doesn't mirror is disorienting,
                 # worse so mid-liveness-turn. Box positions mirror correctly
@@ -419,6 +433,7 @@ class CameraWorker(threading.Thread):
             "camera_ok": self.error is None and self._latest_jpeg is not None,
             "error": self.error,
             "fps": round(self.fps, 1),
+            "detect_ms": self.detect_ms,
             "enrolled": len(self.gallery),
             "liveness": self.kiosk.args.liveness,
             "auto_log": self.kiosk.auto_log,
