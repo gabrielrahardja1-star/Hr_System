@@ -22,18 +22,18 @@ First run triggers the macOS camera-permission prompt for whichever app launched
 this process (Terminal/iTerm/VS Code). If capture returns all-black frames, grant
 it in System Settings > Privacy & Security > Camera and restart that app.
 
-**Windows (dshow) support is untested** — written by mirroring the avfoundation
-path exactly (ffmpeg device-by-name semantics are the same shape on both), but
-this codebase has only ever run on macOS. Verify on real Windows hardware
-before relying on it: `python -m facekiosk.camera` there should list connected
-cameras the same way it does here.
+Windows (dshow) has now been exercised on real hardware. Two things differed
+from the avfoundation path and broke it: ffmpeg 9 labels its enumeration output
+`[in#0 @ ...]` rather than `[dshow @ ...]`, and select() on Windows accepts
+sockets only, so waiting on ffmpeg's stdout pipe raised WinError 10038. Frames
+are now pumped by a thread on both platforms.
 """
 
 from __future__ import annotations
 
 import os
 import re
-import select
+import queue
 import stat
 import subprocess
 import threading
@@ -165,6 +165,9 @@ class FFmpegCamera:
         self._proc: subprocess.Popen | None = None
         self._stderr_tail: deque[str] = deque(maxlen=12)
         self._stderr_thread: threading.Thread | None = None
+        self._frame_thread: threading.Thread | None = None
+        self._frames: queue.Queue = queue.Queue(maxsize=1)
+        self._eof = False
 
     def start(self) -> None:
         cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-nostdin", "-f", FFMPEG_FORMAT]
@@ -193,6 +196,48 @@ class FFmpegCamera:
         # the whole capture.
         self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self._stderr_thread.start()
+        self._frame_thread = threading.Thread(target=self._pump_frames, daemon=True)
+        self._frame_thread.start()
+
+    def _pump_frames(self) -> None:
+        """Read whole frames off the pipe and keep only the newest.
+
+        A thread rather than select(): on Windows select() accepts sockets
+        only, and handing it a pipe raises WinError 10038. Keeping just the
+        latest frame also suits a kiosk — a backlog would show the person who
+        already walked away.
+        """
+        proc = self._proc
+        if proc is None or proc.stdout is None:
+            return
+        buf = bytearray(self._frame_bytes)
+        view = memoryview(buf)
+        while True:
+            got = 0
+            while got < self._frame_bytes:
+                try:
+                    n = proc.stdout.readinto(view[got:])
+                except (OSError, ValueError):
+                    n = 0
+                if not n:  # ffmpeg exited or the device went away
+                    self._eof = True
+                    try:
+                        self._frames.put_nowait(None)
+                    except queue.Full:
+                        pass
+                    return
+                got += n
+            frame = np.frombuffer(bytes(buf), dtype=np.uint8).reshape(
+                self.height, self.width, 3
+            )
+            try:
+                self._frames.get_nowait()  # drop the frame nobody collected
+            except queue.Empty:
+                pass
+            try:
+                self._frames.put_nowait(frame)
+            except queue.Full:
+                pass
 
     def _drain_stderr(self) -> None:
         proc = self._proc
@@ -209,21 +254,12 @@ class FFmpegCamera:
 
     def read(self, timeout: float = 2.0):
         """One frame, or None if the device stopped producing within `timeout`."""
-        proc = self._proc
-        if proc is None or proc.stdout is None:
+        if self._proc is None or self._eof:
             return None
-        buf = bytearray(self._frame_bytes)
-        view = memoryview(buf)
-        got = 0
-        while got < self._frame_bytes:
-            ready, _, _ = select.select([proc.stdout], [], [], timeout)
-            if not ready:
-                return None                      # hung — caller decides what next
-            chunk = proc.stdout.readinto(view[got:])
-            if not chunk:
-                return None                      # ffmpeg exited / device gone
-            got += chunk
-        return np.frombuffer(buf, dtype=np.uint8).reshape(self.height, self.width, 3)
+        try:
+            return self._frames.get(timeout=timeout)
+        except queue.Empty:
+            return None                          # hung — caller decides what next
 
     def release(self) -> None:
         proc, self._proc = self._proc, None
