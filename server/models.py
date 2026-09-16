@@ -97,7 +97,9 @@ class Employee(Base):
     status: Mapped[EmployeeStatus] = mapped_column(
         Enum(EmployeeStatus, native_enum=False), default=EmployeeStatus.active
     )
-    shift_key: Mapped[str] = mapped_column(String(16))
+    # Null until someone decides which shift this person works; attendance is
+    # not computed for them until then.
+    shift_key: Mapped[str | None] = mapped_column(String(16), nullable=True)
     roster_pattern: Mapped[str] = mapped_column(String(16))
     active_from: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
     active_to: Mapped[dt.date | None] = mapped_column(Date, nullable=True)

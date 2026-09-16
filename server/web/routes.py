@@ -315,7 +315,8 @@ def _employee_form(
     for label, value in fields.items():
         if not value:
             raise ValueError(f"{label.replace('_', ' ')} is required")
-    if shift_key not in cfg.shifts:
+    shift_key = shift_key.strip()
+    if shift_key and shift_key not in cfg.shifts:
         raise ValueError(f"Unknown shift {shift_key!r}. Defined: {sorted(cfg.shifts)}")
     if roster_pattern not in cfg.roster_patterns:
         raise ValueError(f"Unknown roster {roster_pattern!r}")
@@ -331,7 +332,7 @@ def _employee_form(
     return {
         **fields,
         "talenta_id": talenta_id.strip() or None,
-        "shift_key": shift_key,
+        "shift_key": shift_key or None,
         "roster_pattern": roster_pattern,
         "status": status_enum,
         "active_from": _date(active_from),

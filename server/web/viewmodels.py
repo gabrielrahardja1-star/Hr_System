@@ -237,11 +237,12 @@ def employee_admin_view(session: Session) -> dict:
                 "talenta_id": e.talenta_id or "",
                 "department": e.department,
                 "status": e.status.value,
-                "shift_key": e.shift_key,
+                "shift_key": e.shift_key or "",
                 "shift_label": shifts[e.shift_key]["name"]
                 if e.shift_key in shifts
-                else f"{e.shift_key} (unknown)",
+                else (f"{e.shift_key} (unknown)" if e.shift_key else ""),
                 "shift_known": e.shift_key in shifts,
+                "shift_unset": not e.shift_key,
                 "roster_pattern": e.roster_pattern,
                 "active_from": e.active_from.isoformat() if e.active_from else "",
                 "active_to": e.active_to.isoformat() if e.active_to else "",

@@ -15,8 +15,8 @@
 {% endmacro %}
 
 {% macro shift_select(shifts, selected='') %}
-<select name="shift_key" required style="min-width:210px">
-  <option value="" disabled {{ 'selected' if not selected }}>—</option>
+<select name="shift_key" style="min-width:210px">
+  <option value="" {{ 'selected' if not selected }}>{{ t('employees.shift_unset') }}</option>
   {% for s in shifts %}
   <option value="{{ s.key }}" {{ 'selected' if s.key == selected }}>
     {{ s.name }} · {{ s.hours }}{% if s.crosses_midnight %} ⏱{% endif %}
@@ -77,7 +77,7 @@
     {{ field(t('employees.department'), 'department', required=True, width='150px') }}
     <div>
       <label style="display:block;font-size:10.5px;font-weight:700;color:#5f6875;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
-        {{ t('employees.shift') }} <span style="color:#b3261e">*</span>
+        {{ t('employees.shift') }}
       </label>
       {{ shift_select(view.shifts) }}
     </div>
@@ -124,7 +124,9 @@
             <td><input name="talenta_id" value="{{ e.talenta_id }}" style="width:110px;font:inherit;font-size:12px"></td>
             <td><input name="department" value="{{ e.department }}" required style="width:120px;font:inherit;font-size:12px"></td>
             <td>
-              {% if not e.shift_known %}
+              {% if e.shift_unset %}
+              <div style="font-size:10px;color:#96500a;font-weight:700">{{ t('employees.shift_unset_warn') }}</div>
+              {% elif not e.shift_known %}
               <div style="font-size:10px;color:#b3261e;font-weight:700">{{ e.shift_label }}</div>
               {% endif %}
               {{ shift_select(view.shifts, e.shift_key) }}

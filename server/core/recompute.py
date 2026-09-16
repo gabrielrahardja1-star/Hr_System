@@ -65,7 +65,13 @@ def recompute_employee(
 ) -> list[dt.date]:
     """Recompute every day in [start, end] for one employee. Returns the dates
     that ended up with a day record (i.e. the employee was employed then)."""
-    shift = get_shift_config().get(employee.shift_key)
+    # A worker can be registered before anyone knows their shift. Without one
+    # there is no window to attribute punches to, so skip them rather than
+    # guess — and never raise, or one unassigned worker would break ingest for
+    # the whole site. Their punches keep accruing and land once a shift is set.
+    shift = get_shift_config().shifts.get(employee.shift_key or "")
+    if shift is None:
+        return []
     touched: list[dt.date] = []
 
     for work_date in _daterange(start, end):

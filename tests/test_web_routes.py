@@ -112,3 +112,74 @@ def test_utc_datetime_survives_a_non_utc_db_session(session, add_punches):
     add_punches("9100", [dt.datetime(2026, 9, 16, 23, 10, tzinfo=WIB)])
     stored = session.query(Punch).filter_by(device_user_id="9100").one().punched_at
     assert stored == dt.datetime(2026, 9, 16, 16, 10, tzinfo=dt.timezone.utc)
+
+
+def test_worker_can_be_added_before_their_shift_is_known(client, session):
+    from server.models import Employee
+
+    resp = client.post(
+        "/employees",
+        data={
+            "device_user_id": "7500", "name": "Shift Unknown", "emp_code": "KM-7500",
+            "talenta_id": "", "department": "Ops", "shift_key": "",
+            "roster_pattern": "continuous", "status": "active",
+            "active_from": "", "active_to": "",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert session.query(Employee).filter_by(device_user_id="7500").one().shift_key is None
+
+
+def test_a_worker_with_no_shift_does_not_break_recompute_for_everyone(
+    session, make_employee, add_punches
+):
+    """Recompute runs on every ingest — one unassigned worker must not stop it."""
+    from server.core.recompute import recompute_all
+    from server.models import DayRecord
+
+    make_employee(device_user_id="7600", emp_code="KM-7600", name="No Shift",
+                  shift_key=None, roster_pattern="continuous")
+    working = make_employee(device_user_id="7601", emp_code="KM-7601", name="Has Shift",
+                            shift_key="S3", roster_pattern="continuous")
+    add_punches("7600", [dt.datetime(2026, 9, 16, 23, 10, tzinfo=WIB)])
+    add_punches("7601", [
+        dt.datetime(2026, 9, 16, 23, 10, tzinfo=WIB),
+        dt.datetime(2026, 9, 17, 7, 5, tzinfo=WIB),
+    ])
+
+    recompute_all(session, dt.date(2026, 9, 16), dt.date(2026, 9, 17),
+                  respect_frontier=False)
+    session.commit()
+
+    # the assigned worker is computed as normal...
+    rec = session.query(DayRecord).filter_by(
+        employee_id=working.id, work_date=dt.date(2026, 9, 16)
+    ).one()
+    assert rec.worked_hours == pytest.approx(7.92, abs=0.02)
+    # ...and the unassigned one simply has no records yet
+    assert session.query(DayRecord).filter_by(employee_id=7600).count() == 0
+
+
+def test_punches_are_picked_up_once_a_shift_is_assigned(client, session, make_employee, add_punches):
+    from server.models import DayRecord, Employee
+
+    emp = make_employee(device_user_id="7700", emp_code="KM-7700", name="Later Assigned",
+                        shift_key=None, roster_pattern="continuous")
+    add_punches("7700", [
+        dt.datetime(2026, 9, 16, 23, 10, tzinfo=WIB),
+        dt.datetime(2026, 9, 17, 7, 5, tzinfo=WIB),
+    ])
+    assert session.query(DayRecord).filter_by(employee_id=emp.id).count() == 0
+
+    from server.core.recompute import recompute_employee
+    emp = session.get(Employee, emp.id)
+    emp.shift_key = "S3"
+    session.flush()
+    recompute_employee(session, emp, dt.date(2026, 9, 16), dt.date(2026, 9, 17))
+    session.commit()
+
+    rec = session.query(DayRecord).filter_by(
+        employee_id=emp.id, work_date=dt.date(2026, 9, 16)
+    ).one()
+    assert rec.worked_hours == pytest.approx(7.92, abs=0.02)

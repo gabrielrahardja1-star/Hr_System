@@ -180,6 +180,8 @@
   "employees.talenta_id": "ID Talenta",
   "employees.department": "Departemen",
   "employees.shift": "Shift",
+  "employees.shift_unset": "\u2014 belum diatur \u2014",
+  "employees.shift_unset_warn": "Belum ada shift \u2014 absensi tidak dihitung",
   "employees.roster": "Pola Kerja",
   "employees.status": "Status",
   "employees.active_from": "Aktif sejak",

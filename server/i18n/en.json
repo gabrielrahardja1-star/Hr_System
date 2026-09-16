@@ -180,6 +180,8 @@
   "employees.talenta_id": "Talenta ID",
   "employees.department": "Department",
   "employees.shift": "Shift",
+  "employees.shift_unset": "\u2014 not set yet \u2014",
+  "employees.shift_unset_warn": "No shift \u2014 attendance not counted",
   "employees.roster": "Roster",
   "employees.status": "Status",
   "employees.active_from": "Active from",

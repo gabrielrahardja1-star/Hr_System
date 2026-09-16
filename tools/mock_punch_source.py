@@ -55,6 +55,8 @@ def generate_punches(days: int, period: str, seed: int) -> tuple[str, list[dict]
     punches: list[dict] = []
 
     for emp in employees:
+        if not emp.shift_key:
+            continue  # no shift assigned yet — nothing to generate against
         start, end, crosses = _shift_times(emp.shift_key)
         for day in range(1, end_day + 1):
             work_date = dt.date(year, month, day)
