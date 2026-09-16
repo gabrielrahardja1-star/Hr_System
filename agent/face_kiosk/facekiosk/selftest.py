@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
+import threading
 import tempfile
 import time
 import urllib.request
@@ -261,6 +263,54 @@ def _run(box: Path) -> int:
         _parse_dshow_devices(_dshow_old) == ["Integrated Camera"],
         str(_parse_dshow_devices(_dshow_old)),
     )
+
+    # --- frame pipe reading, with no camera present ----------------- #
+    # This runs on the Windows CI runner, which has no camera. It stands in a
+    # plain subprocess for ffmpeg so the real pipe-reading path is exercised
+    # per platform: select() accepts sockets only on Windows, and waiting on a
+    # pipe with it raised WinError 10038 on real hardware while every
+    # camera-free check here still passed.
+    from .camera import FFmpegCamera
+    from .config import FROZEN
+
+    if FROZEN:
+        check("frame pipe read (skipped: sys.executable is the bundled exe)", True)
+    else:
+        _w, _h, _n = 4, 2, 3
+        producer = subprocess.Popen(
+            [sys.executable, "-c",
+             "import sys\n"
+             f"for i in range({_n}):\n"
+             f"    sys.stdout.buffer.write(bytes([i + 1]) * {_w * _h * 3})\n"
+             "    sys.stdout.buffer.flush()\n"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
+        )
+        fake = FFmpegCamera("fake", width=_w, height=_h, fps=1)
+        fake._proc = producer
+        fake._frame_thread = threading.Thread(target=fake._pump_frames, daemon=True)
+        fake._frame_thread.start()
+
+        first = fake.read(timeout=10.0)
+        check(
+            "reads a whole frame off the pipe (the WinError 10038 path)",
+            first is not None and first.shape == (_h, _w, 3),
+            f"got {None if first is None else first.shape}",
+        )
+        # The kiosk draws boxes and labels straight onto the frame, so a
+        # read-only array (np.frombuffer over bytes) kills the camera thread
+        # the moment a face is detected.
+        check(
+            "the frame is writable — overlays are drawn onto it in place",
+            first is not None and first.flags.writeable,
+            f"writeable={None if first is None else first.flags.writeable}",
+        )
+        deadline = time.time() + 10
+        while not fake._eof and time.time() < deadline:
+            if fake.read(timeout=1.0) is None and fake._eof:
+                break
+        check("read() reports EOF instead of hanging when the producer exits",
+              fake.read(timeout=1.0) is None)
+        producer.wait(timeout=5)
 
     # --- web app routes (camera intentionally absent) --------------- #
     try:

@@ -42,7 +42,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
 from .camera import FFmpegCamera, list_cameras, open_camera, robust_read
-from .config import DATA_DIR, T
+from .config import DATA_DIR, DEVICE_ID, HQ_API_KEY, HQ_BASE_URL, HQ_CONFIG_PATH, T
 from .gallery import Gallery
 from .run import Kiosk
 from .store import SightingStore
@@ -634,6 +634,12 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"face kiosk on http://{args.host}:{args.port}  (camera {args.camera or 'first available'})")
     print(f"admin: http://{args.host}:{args.port}/admin")
+    print(f"data:  {DATA_DIR}")
+    print(f"sync:  {HQ_BASE_URL}  device={DEVICE_ID}  "
+          f"api key {'set' if HQ_API_KEY else 'MISSING — Sync will fail'}")
+    if not HQ_CONFIG_PATH.exists():
+        print(f"       (configure with {HQ_CONFIG_PATH}: "
+              '{"url": "http://<hq-host>:8001", "api_key": "...", "device_id": "..."})')
     uvicorn.run(create_app(), host=args.host, port=args.port, log_level="warning")
     return 0
 

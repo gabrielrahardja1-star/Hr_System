@@ -227,7 +227,9 @@ class FFmpegCamera:
                         pass
                     return
                 got += n
-            frame = np.frombuffer(bytes(buf), dtype=np.uint8).reshape(
+            # bytearray, not bytes: frombuffer inherits the buffer's read-only
+            # flag, and the caller draws overlays straight onto the frame.
+            frame = np.frombuffer(bytearray(buf), dtype=np.uint8).reshape(
                 self.height, self.width, 3
             )
             try:

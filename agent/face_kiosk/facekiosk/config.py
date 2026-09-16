@@ -7,6 +7,7 @@ to adjust `match_cosine` and `detect_score` during the on-site pass.
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import sys
@@ -47,9 +48,34 @@ SOURCE_TAG = "face-kiosk-proto"
 # Biometric data (the gallery above) never leaves this device — only sighting
 # events (uid, timestamp, direction) sync out, and only when the Sync button
 # is pressed.
-HQ_BASE_URL = os.environ.get("FACEKIOSK_HQ_URL", "http://localhost:8000")
-HQ_API_KEY = os.environ.get("FACEKIOSK_HQ_API_KEY", "")
-DEVICE_ID = os.environ.get("FACEKIOSK_DEVICE_ID", "FACE-KIOSK-01")
+#
+# Configured by data/hq.json next to the executable, so a kiosk is set up by
+# editing a file rather than by getting Windows environment variables right:
+#
+#     {"url": "http://10.0.0.5:8001", "api_key": "...", "device_id": "FACE-KIOSK-01"}
+#
+# An environment variable still wins, for dev machines and overrides.
+HQ_CONFIG_PATH = DATA_DIR / "hq.json"
+
+
+def _hq_file() -> dict:
+    try:
+        loaded = json.loads(HQ_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+_HQ = _hq_file()
+
+
+def _hq_setting(key: str, env_var: str, default: str) -> str:
+    return os.environ.get(env_var) or str(_HQ.get(key) or "") or default
+
+
+HQ_BASE_URL = _hq_setting("url", "FACEKIOSK_HQ_URL", "http://localhost:8000").rstrip("/")
+HQ_API_KEY = _hq_setting("api_key", "FACEKIOSK_HQ_API_KEY", "")
+DEVICE_ID = _hq_setting("device_id", "FACEKIOSK_DEVICE_ID", "FACE-KIOSK-01")
 
 
 @dataclass(frozen=True)
