@@ -52,7 +52,7 @@ class Settings:
 
 @functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    tz_name = _env("HR_TIMEZONE", "Asia/Jakarta")
+    tz_name = _env("HR_TIMEZONE", "Asia/Makassar")  # site is WITA, not WIB
     keys = {
         k.strip()
         for k in _env("HR_INGEST_API_KEYS", "dev-local-key").split(",")

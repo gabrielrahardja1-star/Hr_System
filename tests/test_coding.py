@@ -156,3 +156,24 @@ def test_night_shift_attribution(make_employee, add_punches, session):
     assert rec_3.worked_hours == pytest.approx(7.92, abs=0.02)
     rec_4 = session.query(DayRecord).filter_by(employee_id=emp.id, work_date=dt.date(2026, 8, 4)).one()
     assert rec_4.code in ("A", "MP")
+
+
+def test_twelve_hour_shift_is_not_flagged_as_over_long(make_employee, add_punches, session):
+    """Shift 4 runs 12:00-00:00. A normal 12h day must code P, not LONG —
+    the 12.0 ceiling the shorter shifts use would flag every single one."""
+    from server.core.recompute import recompute_employee
+    from server.models import DayRecord
+
+    emp = make_employee(shift_key="S4", roster_pattern="continuous")
+    add_punches(
+        emp.device_user_id,
+        [_wib(2026, 8, 3, 12, 5), _wib(2026, 8, 4, 0, 10)],
+    )
+    recompute_employee(session, emp, dt.date(2026, 8, 3), dt.date(2026, 8, 4))
+    session.commit()
+
+    rec = session.query(DayRecord).filter_by(
+        employee_id=emp.id, work_date=dt.date(2026, 8, 3)
+    ).one()
+    assert rec.code == "P"
+    assert rec.worked_hours == pytest.approx(12.08, abs=0.02)

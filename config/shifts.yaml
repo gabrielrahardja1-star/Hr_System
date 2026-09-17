@@ -1,4 +1,6 @@
-# Shift definitions. Times are local (Asia/Jakarta), 24h.
+# Shift definitions. Times are local site time (WITA / Asia/Makassar), 24h.
+# Not WIB — an hour of error moves every attribution window and the night
+# shift stops landing inside its own.
 #
 # window_start / window_end bound the period in which punches are attributed to
 # this shift's work_date. For a night shift the window crosses midnight; a punch
@@ -38,6 +40,18 @@ shifts:
     crosses_midnight: true
     short_hours: 6.0
     long_hours: 12.0
+
+  S4:
+    name: "Shift 4 (Siang Panjang)"
+    start: "12:00"
+    end: "00:00"            # midnight -> counts as crossing
+    window_start: "09:00"
+    window_end: "04:00"     # next day
+    crosses_midnight: true
+    # A 12-hour shift: the 12.0 ceiling the other shifts use would flag every
+    # normal day as over-long, so the thresholds scale with the shift.
+    short_hours: 9.0
+    long_hours: 14.0
 
 # Weekly roster patterns. One char per weekday starting Monday.
 #   W = working day, O = week-off (WO)
