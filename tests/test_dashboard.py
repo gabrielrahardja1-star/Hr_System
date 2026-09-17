@@ -17,18 +17,18 @@ def _seed_month(make_employee, add_punches, session):
 
     make_employee(
         device_user_id="1001", emp_code="KM-1400", name="Budi Santoso",
-        department="Operasi Tambang", shift_key="S1", roster_pattern="continuous",
+        department="Operasi Tambang", shift_key="KERJA", roster_pattern="continuous",
     )
     make_employee(
         device_user_id="1002", emp_code="KM-1403", name="Siti Wijaya",
-        department="Hauling", shift_key="S1", roster_pattern="continuous",
+        department="Hauling", shift_key="KERJA", roster_pattern="continuous",
     )
     for day in range(1, 11):
-        add_punches("1001", [_wib(2026, 8, day, 6, 0), _wib(2026, 8, day, 14, 30)])
+        add_punches("1001", [_wib(2026, 8, day, 8, 0), _wib(2026, 8, day, 16, 30)])
         if day == 5:
-            add_punches("1002", [_wib(2026, 8, 5, 6, 0)])  # missing out -> MP
+            add_punches("1002", [_wib(2026, 8, 5, 8, 0)])  # missing out -> MP
         else:
-            add_punches("1002", [_wib(2026, 8, day, 6, 0), _wib(2026, 8, day, 14, 30)])
+            add_punches("1002", [_wib(2026, 8, day, 8, 0), _wib(2026, 8, day, 16, 30)])
 
     recompute_all(session, dt.date(2026, 8, 1), dt.date(2026, 8, 31))
     session.commit()

@@ -316,6 +316,10 @@ def _employee_form(
         if not value:
             raise ValueError(f"{label.replace('_', ' ')} is required")
     shift_key = shift_key.strip()
+    # With a single shift there is nothing to choose, so a blank field must not
+    # quietly mean "compute no attendance for this person".
+    if not shift_key and len(cfg.shifts) == 1:
+        shift_key = next(iter(cfg.shifts))
     if shift_key and shift_key not in cfg.shifts:
         raise ValueError(f"Unknown shift {shift_key!r}. Defined: {sorted(cfg.shifts)}")
     if roster_pattern not in cfg.roster_patterns:

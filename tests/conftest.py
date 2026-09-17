@@ -85,7 +85,7 @@ def make_employee(session):
         emp_code="KM-1400",
         name="Budi Santoso",
         department="Operasi Tambang",
-        shift_key="S1",
+        shift_key="KERJA",
         roster_pattern="six_day_sun_off",
         status=EmployeeStatus.active,
         active_from=dt.date(2025, 1, 1),

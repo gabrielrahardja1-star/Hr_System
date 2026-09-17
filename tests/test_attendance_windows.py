@@ -1,4 +1,9 @@
-"""Shift-window attribution and chatter collapse, tested as pure functions."""
+"""The single work-day window, and chatter collapse, as pure functions.
+
+There is one shift. A working day runs 07:30 to 07:30 the next morning — the
+hour nobody is on site — so every pattern worked here falls inside one window
+and is credited to the day it started.
+"""
 
 from __future__ import annotations
 
@@ -7,44 +12,43 @@ import datetime as dt
 WIB = dt.timezone(dt.timedelta(hours=7))
 
 
-def test_day_shift_window_same_calendar_day(env):
+def test_the_day_runs_0730_to_0730(env):
     from server.config import get_shift_config
     from server.core.attendance import shift_window_utc
 
-    shift = get_shift_config().get("S1")
+    shift = get_shift_config().get("KERJA")
     win = shift_window_utc(shift, dt.date(2026, 8, 3))
-    # 05:00 WIB -> 20:00 WIB on the 3rd == 22:00 UTC the 2nd .. 13:00 UTC the 3rd
-    assert win.start_utc == dt.datetime(2026, 8, 2, 22, 0, tzinfo=dt.timezone.utc)
-    assert win.end_utc == dt.datetime(2026, 8, 3, 13, 0, tzinfo=dt.timezone.utc)
+    # 07:30 local on the 3rd -> 07:30 local on the 4th
+    assert win.start_utc == dt.datetime(2026, 8, 3, 0, 30, tzinfo=dt.timezone.utc)
+    assert win.end_utc == dt.datetime(2026, 8, 4, 0, 30, tzinfo=dt.timezone.utc)
+    assert (win.end_utc - win.start_utc) == dt.timedelta(hours=24)
 
 
-def test_evening_shift_window_rolls_into_next_day(env):
+def test_a_night_spans_one_window_not_two(env):
     from server.config import get_shift_config
     from server.core.attendance import shift_window_utc
 
-    shift = get_shift_config().get("S2")
+    shift = get_shift_config().get("KERJA")
     win = shift_window_utc(shift, dt.date(2026, 8, 3))
-    # 13:00 WIB on the 3rd -> 04:00 WIB on the 4th
-    assert win.start_utc == dt.datetime(2026, 8, 3, 6, 0, tzinfo=dt.timezone.utc)
-    assert win.end_utc == dt.datetime(2026, 8, 3, 21, 0, tzinfo=dt.timezone.utc)
-    assert win.contains(dt.datetime(2026, 8, 3, 17, 0, tzinfo=dt.timezone.utc))  # 00:00 WIB the 4th
-
-
-def test_night_shift_window_rolls_into_next_day(env):
-    from server.config import get_shift_config
-    from server.core.attendance import shift_window_utc
-
-    shift = get_shift_config().get("S3")
-    win = shift_window_utc(shift, dt.date(2026, 8, 3))
-    # 20:00 WIB on the 3rd -> 12:00 WIB on the 4th
-    assert win.start_utc == dt.datetime(2026, 8, 3, 13, 0, tzinfo=dt.timezone.utc)
-    assert win.end_utc == dt.datetime(2026, 8, 4, 5, 0, tzinfo=dt.timezone.utc)
-    assert win.contains(dt.datetime(2026, 8, 3, 16, 0, tzinfo=dt.timezone.utc))  # 23:00 WIB the 3rd
-    assert win.contains(dt.datetime(2026, 8, 4, 0, 0, tzinfo=dt.timezone.utc))   # 07:00 WIB the 4th
-    # the next day's own window must not swallow this shift's clock-out
+    clock_in = dt.datetime(2026, 8, 3, 23, 0, tzinfo=WIB)     # 23:00 on the 3rd
+    clock_out = dt.datetime(2026, 8, 4, 7, 0, tzinfo=WIB)     # 07:00 on the 4th
+    assert win.contains(clock_in.astimezone(dt.timezone.utc))
+    assert win.contains(clock_out.astimezone(dt.timezone.utc))
+    # ...and the next day must not also claim that clock-out
     assert not shift_window_utc(shift, dt.date(2026, 8, 4)).contains(
-        dt.datetime(2026, 8, 4, 0, 0, tzinfo=dt.timezone.utc)
+        clock_out.astimezone(dt.timezone.utc)
     )
+
+
+def test_consecutive_days_neither_overlap_nor_leave_a_gap(env):
+    from server.config import get_shift_config
+    from server.core.attendance import shift_window_utc
+
+    shift = get_shift_config().get("KERJA")
+    first = shift_window_utc(shift, dt.date(2026, 8, 3))
+    second = shift_window_utc(shift, dt.date(2026, 8, 4))
+    # Touching exactly: no punch can land in both windows or in neither.
+    assert first.end_utc == second.start_utc
 
 
 def test_chatter_collapse():

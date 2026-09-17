@@ -75,12 +75,12 @@ def test_ingest_triggers_recompute(make_employee, session):
     from server.api.ingest import ingest_punches
     from server.models import DayRecord
 
-    make_employee(device_user_id="1001", shift_key="S1", roster_pattern="continuous")
+    make_employee(device_user_id="1001", shift_key="KERJA", roster_pattern="continuous")
     ingest_punches(
         _batch(
             [
-                _punch("1001", dt.datetime(2026, 8, 3, 6, 0, tzinfo=WIB)),
-                _punch("1001", dt.datetime(2026, 8, 3, 14, 30, tzinfo=WIB)),
+                _punch("1001", dt.datetime(2026, 8, 3, 8, 0, tzinfo=WIB)),
+                _punch("1001", dt.datetime(2026, 8, 3, 16, 30, tzinfo=WIB)),
             ]
         ),
         session=session,

@@ -22,16 +22,19 @@ DAY = dt.date(2026, 8, 3)
 
 
 CASES = [
-    # name,                punch times (WIB),                       code, hours, exceptions
-    ("full shift",         [_wib(2026, 8, 3, 6, 2), _wib(2026, 8, 3, 14, 35)], "P",  8.55, set()),
-    ("short shift",        [_wib(2026, 8, 3, 6, 0), _wib(2026, 8, 3, 9, 30)],  "SS", 3.5,  {"SS"}),
-    ("single punch / MP",  [_wib(2026, 8, 3, 6, 5)],                            "MP", None, {"MP"}),
-    ("three punches / MP", [_wib(2026, 8, 3, 6, 0), _wib(2026, 8, 3, 10, 0), _wib(2026, 8, 3, 14, 0)], "MP", None, {"MP"}),
+    # The working day runs 07:30 -> 07:30, so every time here sits inside one
+    # window. Thresholds are wide now (short 3.0h, long 16.0h) because with no
+    # fixed shift there is no expected length — only the obviously wrong.
+    # name,                punch times (local),                     code, hours, exceptions
+    ("full shift",         [_wib(2026, 8, 3, 8, 2), _wib(2026, 8, 3, 16, 35)],  "P",  8.55, set()),
+    ("short shift",        [_wib(2026, 8, 3, 8, 0), _wib(2026, 8, 3, 10, 30)],  "SS", 2.5,  {"SS"}),
+    ("single punch / MP",  [_wib(2026, 8, 3, 8, 5)],                            "MP", None, {"MP"}),
+    ("three punches / MP", [_wib(2026, 8, 3, 8, 0), _wib(2026, 8, 3, 12, 0), _wib(2026, 8, 3, 16, 0)], "MP", None, {"MP"}),
     ("no punches / absent",[],                                                  "A",  0.0,  {"A"}),
-    ("chatter absorbed",   [_wib(2026, 8, 3, 6, 0), _wib(2026, 8, 3, 6, 0, 20), _wib(2026, 8, 3, 14, 30)], "P", 8.5, set()),
-    # 06:00 -> 19:45 is 13.75h, over Shift A's 12.0h ceiling: still P, flagged LONG.
-    ("long / missed out",  [_wib(2026, 8, 3, 6, 0), _wib(2026, 8, 3, 19, 45)],  "P",  13.75, {"LONG"}),
-    ("out-of-order punches",[_wib(2026, 8, 3, 14, 30), _wib(2026, 8, 3, 6, 0)], "P",  8.5,  set()),
+    ("chatter absorbed",   [_wib(2026, 8, 3, 8, 0), _wib(2026, 8, 3, 8, 0, 20), _wib(2026, 8, 3, 16, 30)], "P", 8.5, set()),
+    # 08:00 -> 00:30 the next morning is 16.5h, over the 16.0 ceiling: still P, flagged LONG.
+    ("long / missed out",  [_wib(2026, 8, 3, 8, 0), _wib(2026, 8, 4, 0, 30)],   "P",  16.5, {"LONG"}),
+    ("out-of-order punches",[_wib(2026, 8, 3, 16, 30), _wib(2026, 8, 3, 8, 0)], "P",  8.5,  set()),
 ]
 
 
@@ -69,7 +72,7 @@ def test_mp_hours_are_null_never_zero(make_employee, add_punches, session):
     from server.models import DayRecord
 
     emp = make_employee()
-    add_punches(emp.device_user_id, [_wib(2026, 8, 3, 6, 5)])
+    add_punches(emp.device_user_id, [_wib(2026, 8, 3, 8, 5)])
     recompute_employee(session, emp, DAY, DAY)
     session.commit()
 
@@ -105,7 +108,7 @@ def test_recompute_is_idempotent(make_employee, add_punches, session):
     from server.models import DayRecord, Exception_
 
     emp = make_employee()
-    add_punches(emp.device_user_id, [_wib(2026, 8, 3, 6, 5)])
+    add_punches(emp.device_user_id, [_wib(2026, 8, 3, 8, 5)])
 
     for _ in range(3):
         recompute_employee(session, emp, DAY, DAY)
@@ -120,7 +123,7 @@ def test_evening_shift_attribution(make_employee, add_punches, session):
     from server.core.recompute import recompute_employee
     from server.models import DayRecord
 
-    emp = make_employee(shift_key="S2", roster_pattern="continuous")
+    emp = make_employee(shift_key="KERJA", roster_pattern="continuous")
     # in 18:10 on the 3rd, out 02:20 on the 4th
     add_punches(
         emp.device_user_id,
@@ -142,7 +145,7 @@ def test_night_shift_attribution(make_employee, add_punches, session):
     from server.core.recompute import recompute_employee
     from server.models import DayRecord
 
-    emp = make_employee(shift_key="S3", roster_pattern="continuous")
+    emp = make_employee(shift_key="KERJA", roster_pattern="continuous")
     # in 23:10 on the 3rd, out 07:05 on the 4th
     add_punches(
         emp.device_user_id,
@@ -164,7 +167,7 @@ def test_twelve_hour_shift_is_not_flagged_as_over_long(make_employee, add_punche
     from server.core.recompute import recompute_employee
     from server.models import DayRecord
 
-    emp = make_employee(shift_key="S4", roster_pattern="continuous")
+    emp = make_employee(shift_key="KERJA", roster_pattern="continuous")
     add_punches(
         emp.device_user_id,
         [_wib(2026, 8, 3, 12, 5), _wib(2026, 8, 4, 0, 10)],

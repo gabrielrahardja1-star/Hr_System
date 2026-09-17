@@ -1,57 +1,35 @@
-# Shift definitions. Times are local site time (WITA / Asia/Makassar), 24h.
-# Not WIB — an hour of error moves every attribution window and the night
-# shift stops landing inside its own.
+# One shift, because the site does not run fixed ones. Hours paid are always
+# the actual time between a person's first and last punch — the shift never
+# contributes a number. All it decides is which calendar day a punch belongs to.
 #
-# window_start / window_end bound the period in which punches are attributed to
-# this shift's work_date. For a night shift the window crosses midnight; a punch
-# is always attributed to the calendar date on which the window STARTS.
+# Times are local site time (WITA / Asia/Makassar), 24h. Not WIB — an hour of
+# error moves the day boundary and the night shift stops landing on its own day.
 #
-# short_hours / long_hours override the global thresholds in .env for this shift.
-# A day coded with worked hours below short_hours -> SS exception.
-# Above long_hours -> LONG exception (cell stays P).
+# The boundary is 07:30, the one hour of the day nobody is working: the latest
+# anyone finishes is 07:00 (the night crew) and the earliest anyone starts is
+# 08:00. So a working day runs 07:30 to 07:30, every pattern fits inside one
+# window, and work is credited to the day it STARTED. Somebody clocking in at
+# 23:00 and out at 07:00 the next morning is one day's work, on the first date.
+#
+# The 30 minutes of slack either side is the limit: a night worker still on site
+# past 07:30, or a day worker arriving before it, lands on the neighbouring day.
+# Widening that is not possible while the two shifts sit an hour apart.
+#
+# short_hours / long_hours override the global thresholds in .env.
+# Below short_hours -> SS exception. Above long_hours -> LONG (cell stays P).
 
 shifts:
-  S1:
-    name: "Shift 1 (Pagi)"
-    start: "08:00"
-    end: "15:00"
-    window_start: "05:00"   # earliest a Shift-1 punch is believable
-    window_end: "20:00"     # latest before it rolls into Shift 2 territory
-    crosses_midnight: false
-    short_hours: 5.0
-    long_hours: 12.0
-
-  S2:
-    name: "Shift 2 (Sore)"
-    start: "16:00"
-    end: "00:00"            # midnight -> counts as crossing
-    window_start: "13:00"
-    window_end: "04:00"     # next day
+  KERJA:
+    name: "Jam Kerja"
+    start: "07:30"
+    end: "07:30"
+    window_start: "07:30"
+    window_end: "07:30"     # next day — a full 24h, no gaps and no overlap
     crosses_midnight: true
-    short_hours: 6.0
-    long_hours: 12.0
-
-  S3:
-    name: "Shift 3 (Malam)"
-    start: "23:00"
-    end: "07:00"
-    window_start: "20:00"
-    window_end: "12:00"     # next day
-    crosses_midnight: true
-    short_hours: 6.0
-    long_hours: 12.0
-
-  S4:
-    name: "Shift 4 (Siang Panjang)"
-    start: "12:00"
-    end: "00:00"            # midnight -> counts as crossing
-    window_start: "09:00"
-    window_end: "04:00"     # next day
-    crosses_midnight: true
-    # A 12-hour shift: the 12.0 ceiling the other shifts use would flag every
-    # normal day as over-long, so the thresholds scale with the shift.
-    short_hours: 9.0
-    long_hours: 14.0
+    # Wide on purpose: with no fixed shift there is no expected length, so these
+    # only catch the obviously wrong — a 2-minute day, or a missed clock-out.
+    short_hours: 3.0
+    long_hours: 16.0
 
 # Weekly roster patterns. One char per weekday starting Monday.
 #   W = working day, O = week-off (WO)

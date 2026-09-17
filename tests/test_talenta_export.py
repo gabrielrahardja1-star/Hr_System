@@ -58,7 +58,7 @@ def _emp(make_employee, talenta_id, device_user_id="9001"):
         talenta_id=talenta_id,
         name="Test Worker",
         department="Operations",
-        shift_key="S1",
+        shift_key="KERJA",
         roster_pattern="continuous",
     )
 
@@ -100,7 +100,7 @@ def test_enriches_a_clean_working_day(make_employee, add_punches, session, skele
 
     emp = _emp(make_employee, "CKI-A230065")
     add_punches(emp.device_user_id, [
-        dt.datetime(2026, 7, 28, 7, 18, tzinfo=WIB),
+        dt.datetime(2026, 7, 28, 8, 18, tzinfo=WIB),
         dt.datetime(2026, 7, 28, 16, 5, tzinfo=WIB),
     ])
     recompute_all(session, *_period_days(), respect_frontier=False)
@@ -116,7 +116,7 @@ def test_enriches_a_clean_working_day(make_employee, add_punches, session, skele
     hdr = {c.value: c.column for c in ws[1]}
     row2 = 2
     assert ws.cell(row=row2, column=hdr["Attendance Code"]).value == "H"
-    assert ws.cell(row=row2, column=hdr["Check In"]).value == "07:18"
+    assert ws.cell(row=row2, column=hdr["Check In"]).value == "08:18"
     assert ws.cell(row=row2, column=hdr["Check Out"]).value == "16:05"
     # untouched columns stay put
     assert ws.cell(row=row2, column=hdr["Schedule In"]).value == "07:20"
@@ -128,7 +128,7 @@ def test_missing_punch_day_is_held_and_blocks_final(make_employee, add_punches, 
     from server.core.talenta_export import enrich_skeleton
 
     emp = _emp(make_employee, "CKI-A230065")
-    add_punches(emp.device_user_id, [dt.datetime(2026, 7, 28, 7, 20, tzinfo=WIB)])  # in only
+    add_punches(emp.device_user_id, [dt.datetime(2026, 7, 28, 8, 20, tzinfo=WIB)])  # in only
     recompute_all(session, *_period_days(), respect_frontier=False)
     session.commit()
 

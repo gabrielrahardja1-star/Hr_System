@@ -32,14 +32,14 @@ LAST = [
     "Purnomo", "Hartono",
 ]
 DEPARTMENTS = [
-    ("Operasi Tambang", "S1"),
-    ("Hauling", "S2"),
-    ("Pengolahan", "S3"),
-    ("Maintenance", "S1"),
-    ("Survey & Geologi", "S1"),
-    ("HSE", "S1"),
-    ("Gudang", "S1"),
-    ("Listrik", "S2"),
+    ("Operasi Tambang", "KERJA"),
+    ("Hauling", "KERJA"),
+    ("Pengolahan", "KERJA"),
+    ("Maintenance", "KERJA"),
+    ("Survey & Geologi", "KERJA"),
+    ("HSE", "KERJA"),
+    ("Gudang", "KERJA"),
+    ("Listrik", "KERJA"),
 ]
 # Staff who keep office hours rather than rotating with the crews.
 OFFICE_DEPTS = {"Survey & Geologi", "HSE"}
