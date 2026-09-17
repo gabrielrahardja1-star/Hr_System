@@ -81,7 +81,10 @@ def check_hq() -> dict:
             headers={"X-API-Key": config.HQ_API_KEY},
             timeout=10,
         ) as client:
-            resp = client.get("/api/v1/sync-state")
+            # sync-state wants the device_id, and passing the real one makes
+            # this check the exact identity punches will arrive under.
+            resp = client.get("/api/v1/sync-state",
+                              params={"device_id": config.DEVICE_ID})
     except httpx.HTTPError as exc:
         return {"ok": False, "error": f"cannot reach {config.HQ_BASE_URL} ({exc})"}
     if resp.status_code == 401:
